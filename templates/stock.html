@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/static/icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estudantina">
+<meta name="theme-color" content="#EDEAE3">
+<title>Estudantina · Stock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v={{ v }}">
+<style>
+.page-nav { display:flex; align-items:center; gap:12px; margin-bottom:32px; }
+.page-nav a { font-size:13px; color:var(--muted); text-decoration:none; }
+.page-nav a:hover { color:var(--text); }
+.page-nav .sep { color:var(--faint); }
+
+.summary-bar { display:flex; gap:0; background:var(--bg-card); border:1px solid var(--border);
+  border-radius:8px; overflow:hidden; margin-bottom:24px; }
+.sum-item { flex:1; padding:16px 20px; border-right:1px solid var(--border); }
+.sum-item:last-child { border-right:none; }
+.sum-label { font-size:10px; font-weight:500; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
+.sum-val { font-size:22px; font-weight:600; letter-spacing:-.4px; }
+
+.view-tabs { display:flex; margin-bottom:20px; border:1px solid var(--border);
+  border-radius:8px; overflow:hidden; width:fit-content; }
+.view-tab { font-family:inherit; font-size:13px; font-weight:500; padding:8px 20px;
+  border:none; background:transparent; color:var(--muted); cursor:pointer; border-right:1px solid var(--border); }
+.view-tab:last-child { border-right:none; }
+.view-tab:hover { background:var(--bg-hover); color:var(--text); }
+.view-tab.active { background:var(--bg-card); color:var(--text); font-weight:600; box-shadow:inset 0 -2px 0 var(--spec); }
+.tab-badge { display:inline-block; margin-left:6px; font-size:10px; background:var(--bg-hover); color:var(--faint); padding:1px 6px; border-radius:10px; }
+
+.toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; }
+.toolbar input[type=text] { flex:1; padding:8px 12px; border:1px solid var(--border);
+  border-radius:6px; font-family:inherit; font-size:13px; background:var(--bg-card); color:var(--text); }
+.btn-add { font-family:inherit; font-size:12px; font-weight:500; padding:7px 14px;
+  border-radius:6px; cursor:pointer; border:1px solid var(--border); background:var(--bg-card); color:var(--text); }
+.btn-add:hover { background:var(--bg-hover); }
+.btn-primary { font-family:inherit; font-size:12px; font-weight:600; padding:8px 16px;
+  border-radius:6px; cursor:pointer; border:none; background:var(--text); color:#fff; }
+.btn-ghost { font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px;
+  cursor:pointer; border:1px solid var(--border); background:transparent; color:var(--muted); }
+
+/* Category group */
+.cat-group { margin-bottom:22px; }
+.cat-title { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); margin-bottom:8px; padding-left:2px; }
+.cat-items { border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg-card); }
+
+/* Item row */
+.item-row { display:flex; align-items:center; gap:12px; padding:11px 16px;
+  border-bottom:1px solid var(--border); border-left:3px solid transparent; }
+.item-row:last-child { border-bottom:none; }
+.item-row.st-low { border-left-color:#e0a11a; }
+.item-row.st-out { border-left-color:var(--red); }
+.item-name { flex:1; font-size:14px; min-width:120px; }
+.item-note { width:150px; font-family:inherit; font-size:12px; padding:5px 8px;
+  border:1px solid var(--border); border-radius:6px; background:var(--bg-page); color:var(--text); }
+.item-note:focus { border-color:var(--faint); background:var(--bg-card); outline:none; }
+.btn-restock { font-family:inherit; font-size:11px; font-weight:600; padding:5px 10px;
+  border:1px solid #1f7a44; border-radius:6px; background:#e7f5ec; color:#1f7a44; cursor:pointer; white-space:nowrap; }
+.btn-restock:hover { background:#d5edde; }
+.btn-restock-all { font-family:inherit; font-size:12px; font-weight:600; padding:8px 16px;
+  border:1px solid #1f7a44; border-radius:6px; background:#1f7a44; color:#fff; cursor:pointer; margin-bottom:16px; }
+.flag-star { cursor:pointer; font-size:15px; color:var(--faint); user-select:none; padding:0 4px; }
+.flag-star.on { color:#e0a11a; }
+
+/* Status segmented control */
+.status-seg { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.status-btn { font-family:inherit; font-size:11px; font-weight:500; padding:5px 11px;
+  border:none; background:transparent; color:var(--muted); cursor:pointer; border-right:1px solid var(--border); }
+.status-btn:last-child { border-right:none; }
+.status-btn.active.ok  { background:#e7f5ec; color:#1f7a44; }
+.status-btn.active.low { background:#fdf3e0; color:#a86a10; }
+.status-btn.active.out { background:#fdeceb; color:var(--red); }
+
+.item-del { background:none; border:none; cursor:pointer; color:var(--faint); font-size:14px; padding:0 4px; }
+.item-del:hover { color:var(--red); }
+
+.empty { text-align:center; color:var(--muted); padding:40px; font-size:13px; }
+
+/* Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none;
+  align-items:center; justify-content:center; z-index:100; }
+.modal-overlay.open { display:flex; }
+.modal { background:var(--bg-card); border-radius:12px; padding:28px; width:420px; max-width:95vw; }
+.modal-title { font-size:16px; font-weight:700; margin-bottom:18px; }
+.field-label { font-size:11px; font-weight:500; color:var(--muted); margin-bottom:5px; display:block; }
+.field-input { font-family:inherit; font-size:13px; padding:8px 10px; border:1px solid var(--border);
+  border-radius:6px; background:var(--bg-card); color:var(--text); width:100%; box-sizing:border-box; }
+.modal-foot { display:flex; gap:8px; margin-top:20px; }
+
+.toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(80px);
+  background:var(--text); color:#fff; padding:10px 18px; border-radius:8px; font-size:13px;
+  opacity:0; transition:all .25s; z-index:200; }
+.toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+.updated-hint { font-size:11px; color:var(--faint); margin-left:auto; }
+
+/* ── App nav (barre d'onglets partagée) ── */
+.app-nav { display:flex; gap:4px; margin-bottom:28px; border-bottom:1px solid var(--border); }
+.app-nav-item {
+  display:flex; align-items:center; gap:8px; padding:11px 18px;
+  font-size:13px; font-weight:500; color:var(--muted); text-decoration:none;
+  border-radius:8px 8px 0 0; border:1px solid transparent; border-bottom:none;
+  margin-bottom:-1px; white-space:nowrap;
+}
+.app-nav-item svg { width:16px; height:16px; flex-shrink:0; }
+.app-nav-item:hover { color:var(--text); background:var(--bg-hover); }
+.app-nav-item.active { color:var(--text); background:var(--bg-card); border-color:var(--border); font-weight:600; }
+@media (max-width:760px) {
+  .app-nav { overflow-x:auto; } .app-nav-item span { display:none; } .app-nav-item { padding:11px 13px; }
+  /* Lignes de stock : 2e rangée (note + statut) passe sous le nom sur mobile */
+  .item-row { flex-wrap:wrap; row-gap:8px; }
+  .item-name { flex:1 1 auto; min-width:0; }
+  .item-note { flex:1 1 auto; width:auto; order:5; }
+  .status-seg { order:6; }
+  .summary-bar { flex-wrap:wrap; }
+  .summary-bar .sum-item { flex:1 1 33%; border-bottom:1px solid var(--border); }
+  .modal { padding:20px; }
+}
+
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="app-nav">
+    <a href="/" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg><span>Dashboard</span></a>
+    <a href="/cogs" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/></svg><span>COGS</span></a>
+    <a href="/stock" class="app-nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="M3 7.5v9L12 21l9-4.5v-9"/><path d="M12 12v9"/></svg><span>Stock</span></a>
+    <a href="/charges" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg><span>Costs</span></a>
+    <a href="/expenses" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 9h20L12 3Z"/><path d="M4 9v10M9 9v10M15 9v10M20 9v10"/><path d="M2.5 21.5h19"/></svg><span>Expenses</span></a>
+    <a href="/holidays" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Holidays</span></a>
+    <a href="/reconciliation" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13M14 4l3 3-3 3"/><path d="M20 17H7M10 14l-3 3 3 3"/></svg><span>Reconciliation</span></a>
+  </div>
+
+  <div class="header">
+    <div>
+      <div class="header-title">Stock &amp; Supplies</div>
+      <div class="header-sub">Track what's running low — order ahead, not last minute</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="btn-refresh" onclick="loadStock()" title="Refresh">↻</button>
+      <a href="/logout" title="Log out" style="font-size:12px;color:var(--faint);text-decoration:none;padding:5px 8px;">⎋</a>
+    </div>
+  </div>
+
+  <div class="summary-bar">
+    <div class="sum-item"><div class="sum-label">Items</div><div class="sum-val" id="s-total">—</div></div>
+    <div class="sum-item"><div class="sum-label">🟢 OK</div><div class="sum-val" id="s-ok" style="color:#1f7a44;">—</div></div>
+    <div class="sum-item"><div class="sum-label">🟠 Low</div><div class="sum-val" id="s-low" style="color:#a86a10;">—</div></div>
+    <div class="sum-item"><div class="sum-label">🔴 Out</div><div class="sum-val" id="s-out" style="color:var(--red);">—</div></div>
+    <div class="sum-item"><div class="sum-label">To order</div><div class="sum-val" id="s-order">—</div></div>
+  </div>
+
+  <div class="view-tabs">
+    <button class="view-tab active" id="tab-all" onclick="switchTab('all')">All items <span class="tab-badge" id="badge-all">—</span></button>
+    <button class="view-tab" id="tab-order" onclick="switchTab('order')">🛒 To order <span class="tab-badge" id="badge-order">—</span></button>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="🔍 Search an item…" oninput="render()">
+    <button class="btn-add" onclick="openModal()">+ New item</button>
+  </div>
+
+  <div id="list"><div class="empty">Loading…</div></div>
+
+</div><!-- /page -->
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">New item</div>
+    <input type="hidden" id="f-id">
+    <div style="margin-bottom:12px;">
+      <label class="field-label">Name *</label>
+      <input class="field-input" id="f-name" placeholder="e.g. Oat milk">
+    </div>
+    <div style="margin-bottom:12px;">
+      <label class="field-label">Category</label>
+      <input class="field-input" id="f-cat" list="cat-list" placeholder="e.g. Milk & dairy">
+      <datalist id="cat-list"></datalist>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label class="field-label">Note</label>
+      <input class="field-input" id="f-note" placeholder="Supplier, pack size… (optional)">
+    </div>
+    <div class="modal-foot">
+      <button class="btn-primary" style="flex:1;" onclick="saveItem()">Save</button>
+      <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/ui.js?v={{ v }}"></script>
+<script>
+let items = [];
+let tab = 'all';
+const ROLE = "{{ role }}";
+const IS_ADMIN = ROLE === 'admin';
+
+const CAT_ORDER = [
+  'Coffee & tea','Milk & dairy','Fresh produce','Meat & fish','Dry goods & baking',
+  'Spices & condiments','Drinks','Packaging & takeaway','Coffee equipment','Kitchen wrap & storage','Cleaning','Other'
+];
+
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+async function loadStock(){
+  if (window.uiLoadStart) uiLoadStart();
+  try {
+    const r = await fetch('/api/supplies');
+    items = await r.json();
+    populateCats();
+    render();
+  } catch(e) {
+    showToast('Failed to load — check your connection');
+  } finally {
+    if (window.uiLoadEnd) uiLoadEnd();
+  }
+}
+
+function populateCats(){
+  const cats = [...new Set(items.map(i=>i.category).filter(Boolean))].sort();
+  document.getElementById('cat-list').innerHTML = cats.map(c=>`<option value="${c}">`).join('');
+}
+
+function switchTab(t){
+  tab = t;
+  document.getElementById('tab-all').classList.toggle('active', t==='all');
+  document.getElementById('tab-order').classList.toggle('active', t==='order');
+  render();
+}
+
+function needsOrder(i){ return i.status==='low' || i.status==='out' || i.alert; }
+
+function render(){
+  const q = (document.getElementById('search').value||'').toLowerCase();
+  const active = items.filter(i => i.active !== false);
+  // Summary
+  document.getElementById('s-total').textContent = active.length;
+  document.getElementById('s-ok').textContent  = active.filter(i=>i.status==='ok' && !i.alert).length;
+  document.getElementById('s-low').textContent = active.filter(i=>i.status==='low').length;
+  document.getElementById('s-out').textContent = active.filter(i=>i.status==='out').length;
+  const toOrder = active.filter(needsOrder).length;
+  document.getElementById('s-order').textContent = toOrder;
+  document.getElementById('badge-all').textContent = active.length;
+  document.getElementById('badge-order').textContent = toOrder;
+
+  let list = active;
+  if (tab==='order') list = list.filter(needsOrder);
+  if (q) list = list.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
+
+  if (!list.length){
+    if (tab==='order'){
+      document.getElementById('list').innerHTML = `<div class="empty">🎉 Nothing to order — all stocked up.</div>`;
+    } else if (!active.length && !q){
+      document.getElementById('list').innerHTML =
+        `<div class="empty">No items yet.<br><br>
+         <button class="btn-primary" onclick="seedList()">Load starter list (94 items)</button></div>`;
+    } else {
+      document.getElementById('list').innerHTML = `<div class="empty">No items.</div>`;
+    }
+    return;
+  }
+
+  // Group by category
+  const byCat = {};
+  for (const i of list){ const c=i.category||'Other'; (byCat[c]=byCat[c]||[]).push(i); }
+  const cats = Object.keys(byCat).sort((a,b)=>{
+    const ia=CAT_ORDER.indexOf(a), ib=CAT_ORDER.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b);
+  });
+
+  let html='';
+  if (tab==='order' && IS_ADMIN){
+    html += `<button class="btn-restock-all" onclick="restockAll()">✓ Mark all restocked</button>`;
+  }
+  for (const c of cats){
+    const rows = byCat[c].sort((a,b)=>a.name.localeCompare(b.name));
+    html += `<div class="cat-group"><div class="cat-title">${c} · ${rows.length}</div><div class="cat-items">`;
+    for (const i of rows){
+      const noteVal = (i.notes||'').replace(/"/g,'&quot;');
+      const esc = i.name.replace(/'/g,"\\'");
+      const restockBtn = (IS_ADMIN && needsOrder(i))
+        ? `<button class="btn-restock" title="Reset to OK after buying" onclick="restockItem('${i.id}')">✓ Bought</button>` : '';
+      html += `<div class="item-row st-${i.status}">
+        <span class="flag-star ${i.alert?'on':''}" title="Flag to order" onclick="toggleAlert('${i.id}')">${i.alert?'🚩':'⚑'}</span>
+        <span class="item-name">${i.name}</span>
+        <input class="item-note" value="${noteVal}" placeholder="note / qty…" onchange="saveNote('${i.id}', this.value)">
+        <div class="status-seg">
+          <button class="status-btn ok ${i.status==='ok'?'active':''}"  onclick="setStatus('${i.id}','ok')">OK</button>
+          <button class="status-btn low ${i.status==='low'?'active':''}" onclick="setStatus('${i.id}','low')">Low</button>
+          <button class="status-btn out ${i.status==='out'?'active':''}" onclick="setStatus('${i.id}','out')">Out</button>
+        </div>
+        ${restockBtn}
+        <button class="item-del" onclick="delItem('${i.id}','${esc}')">✕</button>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+  document.getElementById('list').innerHTML = html;
+}
+
+async function setStatus(id, status){
+  const it = items.find(x=>x.id===id); if(it) it.status=status;
+  render();
+  await fetch(`/api/supplies/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status})});
+}
+async function toggleAlert(id){
+  const it = items.find(x=>x.id===id); if(!it) return;
+  it.alert = !it.alert; render();
+  await fetch(`/api/supplies/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({alert:it.alert})});
+}
+async function saveNote(id, val){
+  const it = items.find(x=>x.id===id); if(it) it.notes=val;
+  await fetch(`/api/supplies/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({notes:val})});
+}
+async function restockItem(id){
+  const it = items.find(x=>x.id===id); if(it){ it.status='ok'; it.alert=false; }
+  render();
+  await fetch(`/api/supplies/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'ok', alert:false})});
+}
+async function restockAll(){
+  const n = items.filter(needsOrder).length;
+  if(!confirm(`Reset ${n} item(s) back to OK? Do this after your shopping run.`)) return;
+  const r = await fetch('/api/supplies/restock-all', {method:'POST'});
+  const d = await r.json();
+  if(d.ok){ showToast(`✓ ${d.reset} items reset to OK`); loadStock(); }
+  else showToast('Error: ' + (d.error||'unknown'));
+}
+
+async function delItem(id, name){
+  if(!confirm(`Delete "${name}" from the list?`)) return;
+  const r = await fetch(`/api/supplies/${id}`, {method:'DELETE'});
+  if((await r.json()).ok){ items=items.filter(x=>x.id!==id); render(); showToast('Item deleted'); }
+}
+
+function openModal(){
+  document.getElementById('f-id').value='';
+  document.getElementById('f-name').value='';
+  document.getElementById('f-cat').value='';
+  document.getElementById('f-note').value='';
+  document.getElementById('modal-title').textContent='New item';
+  document.getElementById('modal').classList.add('open');
+  setTimeout(()=>document.getElementById('f-name').focus(),50);
+}
+function closeModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function saveItem(){
+  const name = document.getElementById('f-name').value.trim();
+  if(!name){ showToast('Name required'); return; }
+  const body = { name, category: document.getElementById('f-cat').value.trim(),
+                 notes: document.getElementById('f-note').value.trim(), status:'ok' };
+  const r = await fetch('/api/supplies', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d = await r.json();
+  if(d.ok){ closeModal(); showToast(`"${name}" added`); loadStock(); }
+  else showToast('Error: ' + (d.error||'unknown'));
+}
+
+async function seedList(){
+  showToast('Loading starter list…');
+  const r = await fetch('/api/supplies/seed', {method:'POST'});
+  const d = await r.json();
+  if(d.ok){ showToast(`✓ ${d.count} items loaded`); loadStock(); }
+  else showToast('Error: ' + (d.error || 'unknown'));
+}
+
+loadStock();
+</script>
+</body>
+</html>

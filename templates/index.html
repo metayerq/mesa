@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/static/icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estudantina">
+<meta name="theme-color" content="#EDEAE3">
+<title>Estudantina · Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/style.css?v={{ v }}">
+<style>
+/* ── Overview / Cashflow tabs ── */
+.view-tabs {
+  display:flex; gap:0; margin-bottom:20px;
+  border:1px solid var(--border); border-radius:8px;
+  overflow:hidden; background:var(--bg-page);
+  width:fit-content;
+}
+.view-tab {
+  font-family:inherit; font-size:13px; font-weight:500;
+  padding:8px 20px; border:none; background:transparent;
+  color:var(--muted); cursor:pointer;
+  transition:background .12s, color .12s;
+  border-right:1px solid var(--border);
+}
+.view-tab:last-child { border-right:none; }
+.view-tab:hover { background:var(--bg-hover); color:var(--text); }
+.view-tab.active {
+  background:var(--bg-card); color:var(--text);
+  font-weight:600; box-shadow:inset 0 -2px 0 var(--spec);
+}
+
+/* ── Compact payments ── */
+.pay-compact { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+.pay-compact-row {
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:13px;
+}
+.pay-compact-row .pay-label { display:flex; align-items:center; gap:8px; color:var(--text); }
+.pay-compact-row .pay-dot   { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.pay-compact-row .pay-nums  { color:var(--muted); font-variant-numeric:tabular-nums; }
+.pay-bar-track { height:3px; background:var(--bar-bg); border-radius:2px; margin-top:3px; }
+.pay-bar-fill  { height:3px; border-radius:2px; }
+
+/* ── WoW strip ── */
+.wow-strip {
+  display:flex; gap:0; flex-wrap:nowrap;
+  font-size:12px; color:var(--muted);
+  margin-top:8px; padding:10px 16px;
+  background:var(--bg-page); border-radius:0 0 8px 8px;
+  border-top:1px solid var(--border);
+  align-items:center; gap:4px;
+}
+.wow-strip .wow-item { display:flex; align-items:center; gap:6px; }
+.wow-strip .wow-sep  { color:var(--faint); margin:0 10px; }
+
+/* ── Insights cards ── */
+.ins-grid {
+  display:none; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:32px;
+}
+.ins-grid.on { display:grid; }
+@media (max-width:760px) { .ins-grid { grid-template-columns:1fr; } }
+.ins-card {
+  border:1px solid var(--border); border-radius:8px;
+  background:var(--bg-card); padding:14px 18px; min-width:0;
+}
+.ins-label {
+  font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--muted); margin-bottom:8px;
+}
+.ins-big { font-size:19px; font-weight:600; letter-spacing:-.3px; }
+.ins-sub { font-size:11px; color:var(--muted); margin-top:6px; }
+.ins-svg { width:100%; height:78px; display:block; }
+.hm-grid { display:grid; gap:2px; }
+.hm-cell { height:13px; border-radius:3px; background:var(--bar-bg); }
+.hm-lbl  { font-size:9px; color:var(--faint); display:flex; align-items:center; justify-content:center; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:2px; }
+.cal-cell { height:17px; border-radius:4px; font-size:9px; display:flex; align-items:center;
+  justify-content:center; color:var(--faint); background:var(--bg-page); }
+.mv-row { display:flex; justify-content:space-between; gap:8px; font-size:12px; padding:3px 0; }
+.mv-row .mv-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ── Product tab toggle ── */
+.prod-tabs { display:flex; gap:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.prod-tab  {
+  font-family:inherit; font-size:12px; font-weight:500;
+  padding:5px 14px; border:none; background:transparent;
+  color:var(--muted); cursor:pointer;
+  border-right:1px solid var(--border); transition:background .1s, color .1s;
+}
+.prod-tab:last-child { border-right:none; }
+.prod-tab:hover   { background:var(--bg-hover); color:var(--text); }
+.prod-tab.active  { background:var(--bg-card); color:var(--text); font-weight:600; }
+
+/* ── App nav (barre d'onglets partagée) ── */
+.app-nav { display:flex; gap:4px; margin-bottom:28px; border-bottom:1px solid var(--border); }
+.app-nav-item {
+  display:flex; align-items:center; gap:8px; padding:11px 18px;
+  font-size:13px; font-weight:500; color:var(--muted); text-decoration:none;
+  border-radius:8px 8px 0 0; border:1px solid transparent; border-bottom:none;
+  margin-bottom:-1px; white-space:nowrap;
+}
+.app-nav-item svg { width:16px; height:16px; flex-shrink:0; }
+.app-nav-item:hover { color:var(--text); background:var(--bg-hover); }
+.app-nav-item.active { color:var(--text); background:var(--bg-card); border-color:var(--border); font-weight:600; }
+@media (max-width:760px) { .app-nav { overflow-x:auto; } .app-nav-item span { display:none; } .app-nav-item { padding:11px 13px; } }
+
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="app-nav">
+    <a href="/" class="app-nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg><span>Dashboard</span></a>
+    <a href="/cogs" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/></svg><span>COGS</span></a>
+    <a href="/stock" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="M3 7.5v9L12 21l9-4.5v-9"/><path d="M12 12v9"/></svg><span>Stock</span></a>
+    <a href="/charges" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg><span>Costs</span></a>
+    <a href="/expenses" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 9h20L12 3Z"/><path d="M4 9v10M9 9v10M15 9v10M20 9v10"/><path d="M2.5 21.5h19"/></svg><span>Expenses</span></a>
+    <a href="/holidays" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Holidays</span></a>
+    <a href="/reconciliation" class="app-nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13M14 4l3 3-3 3"/><path d="M20 17H7M10 14l-3 3 3 3"/></svg><span>Reconciliation</span></a>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="header-title">Estudantina</div>
+      <div class="header-sub" id="subtitle">Alcântara — loading…</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div class="updated" id="updated-at" style="display:none;"></div>
+      <button class="btn-refresh" onclick="loadData(true)" title="Refresh (bypass cache)">↻</button>
+      <a href="/logout" title="Log out" style="font-size:12px;color:var(--faint);text-decoration:none;padding:5px 8px;">⎋</a>
+    </div>
+  </div>
+
+  <!-- Overview / Cashflow -->
+  <div class="view-tabs">
+    <button class="view-tab active" id="tab-view-overview" onclick="switchDashView('overview')">Overview</button>
+    <button class="view-tab" id="tab-view-cashflow" onclick="switchDashView('cashflow')">Cashflow</button>
+  </div>
+
+  <div id="view-overview">
+
+  <!-- Filtres de période -->
+  <div class="period-pills" id="period-pills">
+    <button class="pill active" data-preset="today"    onclick="setPreset('today')">Today</button>
+    <button class="pill"        data-preset="yesterday" onclick="setPreset('yesterday')">Yesterday</button>
+    <button class="pill"        data-preset="week"      onclick="setPreset('week')">This week</button>
+    <button class="pill"        data-preset="lastweek"  onclick="setPreset('lastweek')">Last week</button>
+    <button class="pill"        data-preset="month"     onclick="setPreset('month')">This month</button>
+    <button class="pill"        data-preset="all"       onclick="setPreset('all')">Since opening</button>
+    <button class="pill"        data-preset="custom"    onclick="openCustomRange()">Custom…</button>
+  </div>
+
+  <div id="custom-range-bar" style="display:none; align-items:center; gap:8px; margin:-8px 0 20px;">
+    <input type="date" id="custom-start" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px;">
+    <span style="color:var(--muted); font-size:13px;">to</span>
+    <input type="date" id="custom-end" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px;">
+    <button class="pill" onclick="applyCustomRange()" style="background:var(--accent,#37352f); color:#fff;">Apply</button>
+  </div>
+
+  <!-- KPIs — label dynamique selon la période -->
+  <div class="section-label" id="kpi-section-label">Today</div>
+  <div style="border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:32px;">
+    <div class="kpi-grid">
+      <div class="kpi-cell">
+        <div class="kpi-label">Revenue (incl. VAT)</div>
+        <div class="kpi-value" id="kpi-ca">—</div>
+        <div class="kpi-delta" id="kpi-ca-delta"></div>
+        <div class="kpi-delta" id="kpi-ca-ht" style="color:var(--muted);margin-top:2px;"></div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Transactions</div>
+        <div class="kpi-value" id="kpi-nb">—</div>
+        <div class="kpi-delta" id="kpi-nb-delta"></div>
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="seuil-bar" style="width:0%"></div></div>
+          <div class="progress-meta" id="seuil-meta">Break-even: {{ seuil }} tx/day</div>
+        </div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Average ticket</div>
+        <div class="kpi-value" id="kpi-ticket">—</div>
+        <div class="kpi-delta" id="kpi-ticket-delta"></div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label" id="kpi-basket-label">Median ticket</div>
+        <div class="kpi-value" id="kpi-median">—</div>
+        <div class="kpi-delta" style="color:var(--muted)">robust to outliers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Économie -->
+  <div class="section-label" id="eco-label" style="margin-top:32px;">Today's economics</div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:32px;background:var(--bg-card);">
+    <div class="kpi-grid">
+      <div class="kpi-cell">
+        <div class="kpi-label" id="eco-marge-label">Gross margin</div>
+        <div class="kpi-value" id="eco-marge">—</div>
+        <div class="kpi-delta" id="eco-marge-pct" style="color:var(--muted)"></div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label" id="eco-charges-label">Costs (day)</div>
+        <div class="kpi-value" id="eco-charges">—</div>
+        <div class="kpi-delta" id="eco-charges-sub" style="color:var(--muted)"></div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label" id="eco-ebitda-label">Est. EBITDA</div>
+        <div class="kpi-value" id="eco-ebitda">—</div>
+        <div class="kpi-delta" id="eco-ebitda-sub" style="color:var(--muted)"></div>
+      </div>
+      <div class="kpi-cell" style="border-right:none;">
+        <div class="kpi-label" id="eco-seuil-label">Break-even revenue</div>
+        <div class="kpi-value" id="eco-seuil">—</div>
+        <div class="kpi-delta" id="eco-seuil-sub"></div>
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="eco-seuil-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Insights visuels -->
+  <div class="section-label" id="insights-label" style="display:none;">Insights</div>
+  <div id="insights-grid" class="ins-grid">
+    <div class="ins-card" id="ins-gauge"></div>
+    <div class="ins-card" id="ins-heatmap"></div>
+    <div class="ins-card" id="ins-month"></div>
+    <div class="ins-card" id="ins-calendar"></div>
+    <div class="ins-card" id="ins-prime"></div>
+    <div class="ins-card" id="ins-basket"></div>
+    <div class="ins-card" id="ins-seat"></div>
+    <div class="ins-card" id="ins-movers"></div>
+  </div>
+
+  <!-- Sparkline 7j + strip WoW fusionné -->
+  <div class="section-label">Last 7 days</div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:32px;">
+    <div style="padding:20px 24px 12px;">
+      <canvas id="chart-week" height="55"></canvas>
+      <div id="week-labels" style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted);"></div>
+    </div>
+    <!-- WoW + meilleur jour intégrés sous la sparkline -->
+    <div class="wow-strip" id="wow-strip" style="display:none;">
+      <div class="wow-item">
+        <span>Current week</span>
+        <strong id="kpi-wow-ca">—</strong>
+        <span id="kpi-wow-ca-delta"></span>
+      </div>
+      <span class="wow-sep">·</span>
+      <div class="wow-item">
+        <span id="kpi-wow-nb">—</span> tx
+        <span id="kpi-wow-nb-delta"></span>
+      </div>
+      <span class="wow-sep">·</span>
+      <div class="wow-item" id="weekday-cell">
+        <span>Best day:</span>
+        <strong id="kpi-best-day">—</strong>
+        <span id="kpi-best-day-sub" style="color:var(--faint)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Répartition : graphe temporel + paiements compacts -->
+  <div class="section-label">Breakdown</div>
+  <div class="charts-grid" style="margin-bottom:32px;">
+    <div class="chart-block">
+      <div class="section-label" id="time-chart-label" style="margin-bottom:16px;">Revenue by hour (€)</div>
+      <canvas id="chart-hourly" height="130"></canvas>
+      <canvas id="chart-daily"  height="130" style="display:none;"></canvas>
+    </div>
+    <div class="chart-block">
+      <div class="section-label" style="margin-bottom:12px;">Payment methods</div>
+      <div id="payment-compact" class="pay-compact"></div>
+    </div>
+  </div>
+
+  <!-- Mix boissons / food -->
+  <div class="section-label" style="margin-top:4px;">Product mix</div>
+  <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:32px;background:var(--bg-card);">
+    <div style="padding:16px 20px;" id="mix-bars">
+      <span style="font-size:12px;color:var(--muted);">Loading…</span>
+    </div>
+  </div>
+
+  <!-- Pics d'activité (conditionnel — jour unique) -->
+  <div id="rush-section" style="display:none;margin-bottom:32px;">
+    <div class="section-label">Activity peaks</div>
+    <div id="rush-list" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Courbe cumulative (conditionnel — jour unique) -->
+  <div id="curve-section" style="display:none;margin-bottom:32px;">
+    <div class="section-label">Sales evolution</div>
+    <div class="card" style="padding:20px 22px;">
+      <canvas id="chart-curve" height="90"></canvas>
+    </div>
+  </div>
+
+  <!-- Produits — un seul tableau avec toggle période / 7j -->
+  <div id="top-products-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div class="section-label" style="margin:0;" id="products-section-label">Top products</div>
+      <div class="prod-tabs">
+        <button class="prod-tab active" id="tab-prod-period" onclick="switchProdTab('period')">Period</button>
+        <button class="prod-tab"        id="tab-prod-7d"     onclick="switchProdTab('7d')">7 days</button>
+      </div>
+    </div>
+
+    <!-- Vue période -->
+    <div id="prod-view-period" class="table-wrap" style="margin-bottom:32px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th class="right">Qty</th>
+            <th class="right">Unit price</th>
+            <th class="right">Revenue</th>
+            <th class="right">Margin</th>
+            <th style="width:100px;"></th>
+          </tr>
+        </thead>
+        <tbody id="products-body">
+          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Vue 7 jours glissants -->
+    <div id="prod-view-7d" class="table-wrap" style="margin-bottom:32px;display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th class="right">Days sold</th>
+            <th class="right">Qty</th>
+            <th class="right">Revenue</th>
+            <th class="right">Margin</th>
+            <th class="right">Avg/day</th>
+          </tr>
+        </thead>
+        <tbody id="products7d-body">
+          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><!-- /top-products-section -->
+
+  <!-- Produits non vendus (conditionnel) -->
+  <div id="unsold-section" style="display:none;margin-bottom:32px;">
+    <div class="section-label">Not sold today</div>
+    <div id="unsold-list" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Transactions récentes -->
+  <div style="display:flex;align-items:baseline;justify-content:space-between;">
+    <div class="section-label" id="recent-label">Recent transactions</div>
+    <div class="section-label" id="recent-count" style="color:var(--faint);"></div>
+  </div>
+  <div class="table-wrap">
+    <div id="recent-list">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Document</th>
+            <th>Type</th>
+            <th class="right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="recent-body">
+          <tr><td colspan="4" style="color:var(--muted);text-align:center;padding:24px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  </div><!-- /view-overview -->
+
+  <!-- Cashflow -->
+  <div id="view-cashflow" style="display:none;">
+    <div class="header-sub" style="margin-bottom:20px;">
+      Real cash in (Vendus sales) vs real cash out (Expenses bank data) — since opening, May 27 2026.
+      May is a partial month (5 trading days).
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+      <label class="check-row" style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="cf-excl-capex" onchange="renderCashflow()" style="width:16px;height:16px;">
+        Exclude one-off capex (renovation &amp; fit-out)
+      </label>
+      <div id="cf-updated" style="font-size:11px;color:var(--faint);"></div>
+    </div>
+
+    <div class="kpi-grid" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:24px;background:var(--bg-card);">
+      <div class="kpi-cell">
+        <div class="kpi-label">Total cash in</div>
+        <div class="kpi-value" id="cf-total-in">—</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Total cash out</div>
+        <div class="kpi-value" id="cf-total-out">—</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Net cash</div>
+        <div class="kpi-value" id="cf-net">—</div>
+      </div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Best / worst month</div>
+        <div class="kpi-value" id="cf-best" style="font-size:15px;">—</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:24px;background:var(--bg-card);padding:20px 24px;">
+      <canvas id="chart-cashflow" height="90"></canvas>
+    </div>
+
+    <div class="section-label" style="margin-bottom:8px;">Monthly detail</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th class="right">Cash in</th>
+            <th class="right">Cash out</th>
+            <th class="right">Net</th>
+            <th class="right">Cumulative</th>
+          </tr>
+        </thead>
+        <tbody id="cashflow-body">
+          <tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><!-- /view-cashflow -->
+
+</div><!-- /page -->
+
+<div id="error-banner">⚠ <span id="error-msg"></span></div>
+<div id="warn-banner" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#fff8e1;border:1px solid #ffe082;color:#795548;padding:10px 18px;border-radius:8px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:50;max-width:90vw;">
+  ⚠ Incomplete data: <span id="warn-msg"></span>
+</div>
+
+<!-- Tooltip survol transaction -->
+<div id="tx-tooltip" style="display:none;position:fixed;z-index:300;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.14);padding:10px 12px;font-size:12px;max-width:280px;pointer-events:none;"></div>
+
+<!-- Drawer ticket -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-title" id="drawer-number"></div>
+      <div class="drawer-sub" id="drawer-meta"></div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-section-label">Items</div>
+  <table class="drawer-table" id="drawer-items"></table>
+  <div class="drawer-section-label" style="margin-top:20px;">Payment</div>
+  <div id="drawer-payments"></div>
+  <div class="drawer-total" id="drawer-total"></div>
+</div>
+
+<script src="/static/ui.js?v={{ v }}"></script>
+<script src="/static/dashboard.js?v={{ v }}"></script>
+</body>
+</html>
