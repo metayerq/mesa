@@ -23,7 +23,7 @@ export default function Home() {
             fontWeight: 650,
           }}
         >
-          Vos marges, en temps réel.
+          Your margins, in real time.
         </h1>
         <p
           style={{
@@ -34,9 +34,8 @@ export default function Home() {
             maxWidth: 460,
           }}
         >
-          Branchez votre POS Vendus et voyez COGS, seuil de rentabilité, mix
-          produit et réconciliation — des KPIs qui n&apos;existent sur aucune
-          caisse. Sales analytics gratuit pour toujours.
+          Plug in your Vendus POS and see COGS, daily break-even, product mix and
+          reconciliation — KPIs no till gives you. Sales analytics free forever.
         </p>
         <Link
           href="/onboarding"
@@ -50,7 +49,7 @@ export default function Home() {
             fontSize: 15,
           }}
         >
-          Commencer — 3 min →
+          Get started — 3 min →
         </Link>
       </div>
     </main>

@@ -19,6 +19,13 @@ export type ConnectResult = {
   };
   tickets: { median: number | null; distribution: { label: string; count: number; pct: number }[] };
   deadHours: number[];
+  heatmap: {
+    hours: number[];
+    rows: { day: string; cells: number[] }[];
+    max: number;
+    busiestHours: number[];
+    busiestShare: number;
+  };
 };
 
 type ProductData = {
@@ -30,7 +37,7 @@ type ProductData = {
 };
 
 const eur = (n: number, compact = false) =>
-  new Intl.NumberFormat("pt-PT", {
+  new Intl.NumberFormat("en-IE", {
     style: "currency",
     currency: "EUR",
     maximumFractionDigits: compact && Math.abs(n) >= 1000 ? 0 : 2,
@@ -53,22 +60,35 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function StatTile({
+  label,
+  value,
+  sub,
+  badge,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  badge?: React.ReactNode;
+}) {
   return (
     <div style={card}>
       <div className="label-mono" style={{ marginBottom: 8 }}>
         {label}
       </div>
-      <div style={{ ...mono, fontSize: 26, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>
-        {value}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ ...mono, fontSize: 26, fontWeight: 600, letterSpacing: "-0.01em", lineHeight: 1 }}>
+          {value}
+        </span>
+        {badge}
       </div>
       {sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{sub}</div>}
     </div>
   );
 }
 
-/** Barre horizontale label + valeur + % (réutilisée paiements / mix / weekday). */
-function Bar({
+/** Horizontal bar with label + value + %. */
+function BarRow({
   label,
   value,
   pct,
@@ -101,9 +121,9 @@ function Bar({
   );
 }
 
-function TrendBadge({ growth }: { growth: number | null }) {
-  if (growth == null) return null;
-  const up = growth >= 0;
+function DeltaBadge({ pct, suffix }: { pct: number | null; suffix?: string }) {
+  if (pct == null) return null;
+  const up = pct >= 0;
   return (
     <span
       style={{
@@ -117,11 +137,14 @@ function TrendBadge({ growth }: { growth: number | null }) {
         whiteSpace: "nowrap",
       }}
     >
-      {up ? "▲" : "▼"} {up ? "+" : ""}
-      {growth}% · 7j
+      {up ? "▲ +" : "▼ "}
+      {pct}%{suffix ? ` · ${suffix}` : ""}
     </span>
   );
 }
+
+const pctDelta = (cur: number, prev: number): number | null =>
+  prev ? Math.round(((cur - prev) / prev) * 100) : null;
 
 export default function Dashboard({
   result,
@@ -132,9 +155,9 @@ export default function Dashboard({
   apiKey: string;
   onReset: () => void;
 }) {
-  const { stats, hourly, payments, daily, meta, weekday, wow, tickets, deadHours } = result;
+  const { stats, hourly, payments, daily, meta, weekday, wow, tickets, deadHours, heatmap } = result;
 
-  // Bloc B — chargé après l'affichage initial.
+  // Product intelligence — loaded after first paint.
   const [products, setProducts] = useState<ProductData | null>(null);
   const [prodStatus, setProdStatus] = useState<"loading" | "done" | "error">("loading");
 
@@ -171,10 +194,14 @@ export default function Dashboard({
   const maxWeekday = Math.max(1, ...weekday.map((w) => w.avg_ca));
   const maxDist = Math.max(1, ...tickets.distribution.map((d) => d.count));
 
+  // Today vs previous open day — derived from the daily series.
+  const todayEntry = daily.find((d) => d.day === meta.until);
+  const prevOpen = [...daily].filter((d) => d.day < meta.until && d.ca > 0).pop();
+
   const dayLabel = (iso: string) =>
     iso === "—"
       ? "—"
-      : new Date(iso + "T00:00:00").toLocaleDateString("fr-FR", {
+      : new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
           weekday: "short",
           day: "numeric",
           month: "short",
@@ -199,9 +226,9 @@ export default function Dashboard({
           <div className="label-mono">◳ Mesa · live</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
             <h1 style={{ fontSize: 22, fontWeight: 650, margin: 0 }}>
-              Votre activité, {meta.days} derniers jours
+              Your activity, last {meta.days} days
             </h1>
-            <TrendBadge growth={wow.growth_ca} />
+            <DeltaBadge pct={wow.growth_ca} suffix="7d" />
           </div>
         </div>
         <div style={{ textAlign: "right", fontSize: 12, color: "var(--muted)" }}>
@@ -213,33 +240,75 @@ export default function Dashboard({
             onClick={onReset}
             style={{ marginTop: 6, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: 0 }}
           >
-            Changer de clé
+            Change key
           </button>
         </div>
       </div>
 
-      {/* Stat tiles */}
+      {/* Today strip */}
+      {todayEntry && (
+        <>
+          <div className="label-mono" style={{ marginBottom: 10 }}>
+            — Today
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
+            <StatTile
+              label="Revenue today"
+              value={eur(todayEntry.ca, true)}
+              badge={prevOpen && <DeltaBadge pct={pctDelta(todayEntry.ca, prevOpen.ca)} />}
+              sub={prevOpen ? `vs ${dayLabel(prevOpen.day)} · ${eur(prevOpen.ca, true)}` : undefined}
+            />
+            <StatTile
+              label="Transactions"
+              value={todayEntry.nb.toLocaleString("en-GB")}
+              badge={prevOpen && <DeltaBadge pct={pctDelta(todayEntry.nb, prevOpen.nb)} />}
+              sub={prevOpen ? `vs ${dayLabel(prevOpen.day)} · ${prevOpen.nb}` : undefined}
+            />
+            <StatTile
+              label="Average ticket"
+              value={todayEntry.nb ? eur(todayEntry.ca / todayEntry.nb) : "—"}
+              badge={
+                prevOpen && todayEntry.nb && prevOpen.nb ? (
+                  <DeltaBadge
+                    pct={pctDelta(todayEntry.ca / todayEntry.nb, prevOpen.ca / prevOpen.nb)}
+                  />
+                ) : undefined
+              }
+              sub={
+                prevOpen && prevOpen.nb
+                  ? `vs ${dayLabel(prevOpen.day)} · ${eur(prevOpen.ca / prevOpen.nb)}`
+                  : undefined
+              }
+            />
+          </div>
+          <div className="label-mono" style={{ marginBottom: 10 }}>
+            — Last {meta.days} days
+          </div>
+        </>
+      )}
+
+      {/* Period stat tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
-        <StatTile label="CA encaissé (TTC)" value={eur(stats.ca, true)} sub={`${eur(stats.ca_ht, true)} HT`} />
-        <StatTile label="Ventes" value={stats.nb.toLocaleString("fr-FR")} sub="tickets (avoirs déduits)" />
+        <StatTile label="Revenue (incl. VAT)" value={eur(stats.ca, true)} sub={`${eur(stats.ca_ht, true)} excl. VAT`} />
+        <StatTile label="Transactions" value={stats.nb.toLocaleString("en-GB")} sub="tickets (refunds deducted)" />
         <StatTile
-          label="Panier moyen"
+          label="Average ticket"
           value={eur(stats.ticket)}
-          sub={tickets.median != null ? `médian ${eur(tickets.median)}` : `${eur(stats.ticket_ht)} HT`}
+          sub={tickets.median != null ? `median ${eur(tickets.median)}` : `${eur(stats.ticket_ht)} excl. VAT`}
         />
-        <StatTile label="Meilleur jour" value={eur(bestDay.ca, true)} sub={dayLabel(bestDay.day)} />
+        <StatTile label="Best day" value={eur(bestDay.ca, true)} sub={dayLabel(bestDay.day)} />
       </div>
 
-      {/* CA par heure */}
+      {/* Revenue by hour */}
       <div style={{ ...card, marginBottom: 20 }}>
         <div className="label-mono" style={{ marginBottom: 4 }}>
-          CA par heure
+          Revenue by hour
         </div>
         <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
-          Pic à <b style={{ color: "var(--text)" }}>{peakHour.label}</b> · {eur(peakHour.ca, true)}
+          Peak at <b style={{ color: "var(--text)" }}>{peakHour.label}</b> · {eur(peakHour.ca, true)}
           {deadHours.length > 0 && (
             <>
-              {" · "}heures creuses :{" "}
+              {" · "}dead hours:{" "}
               <b style={{ color: "var(--text)" }}>{deadHours.map((h) => `${h}h`).join(", ")}</b>
             </>
           )}
@@ -253,7 +322,7 @@ export default function Dashboard({
                 <div
                   key={h.hour}
                   style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
-                  title={`${h.label} · ${eur(h.ca)} · ${h.nb} ventes`}
+                  title={`${h.label} · ${eur(h.ca)} · ${h.nb} sales`}
                 >
                   <div
                     style={{
@@ -276,24 +345,85 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Paiements + CA par jour */}
+      {/* Rush heatmap */}
+      {heatmap.rows.length > 0 && (
+        <div style={{ ...card, marginBottom: 20 }}>
+          <div className="label-mono" style={{ marginBottom: 4 }}>
+            Rush heatmap — revenue by weekday × hour
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
+            <b style={{ color: "var(--text)" }}>{heatmap.busiestShare}%</b> of revenue in your 3
+            busiest hours ({heatmap.busiestHours.map((h) => `${h}h`).join(", ")})
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 560 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: `44px repeat(${heatmap.hours.length}, 1fr)`,
+                  gap: 3,
+                  marginBottom: 3,
+                }}
+              >
+                <span />
+                {heatmap.hours.map((h) => (
+                  <span key={h} style={{ ...mono, fontSize: 10, color: "var(--faint)", textAlign: "center" }}>
+                    {h}
+                  </span>
+                ))}
+              </div>
+              {heatmap.rows.map((row) => (
+                <div
+                  key={row.day}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `44px repeat(${heatmap.hours.length}, 1fr)`,
+                    gap: 3,
+                    marginBottom: 3,
+                  }}
+                >
+                  <span style={{ ...mono, fontSize: 10, color: "var(--faint)", alignSelf: "center" }}>
+                    {row.day}
+                  </span>
+                  {row.cells.map((ca, i) => (
+                    <div
+                      key={i}
+                      title={`${row.day} ${heatmap.hours[i]}h · ${eur(ca)}`}
+                      style={{
+                        height: 20,
+                        borderRadius: 3,
+                        background:
+                          ca > 0
+                            ? `rgba(37, 84, 199, ${0.08 + (ca / heatmap.max) * 0.85})`
+                            : "var(--bg-hover)",
+                      }}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payments + revenue by day */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 20 }}>
         <div style={card}>
-          <Label>Moyens de paiement</Label>
-          {payments.length === 0 && <div style={{ fontSize: 13, color: "var(--muted)" }}>Aucun détail.</div>}
+          <Label>Payment methods</Label>
+          {payments.length === 0 && <div style={{ fontSize: 13, color: "var(--muted)" }}>No breakdown available.</div>}
           {payments.map((p) => (
-            <Bar key={p.label} label={p.label} value={`${eur(p.amount, true)} · ${Math.round((p.amount / payTotal) * 100)}%`} pct={(p.amount / payTotal) * 100} strong />
+            <BarRow key={p.label} label={p.label} value={`${eur(p.amount, true)} · ${Math.round((p.amount / payTotal) * 100)}%`} pct={(p.amount / payTotal) * 100} strong />
           ))}
         </div>
 
         <div style={card}>
-          <Label>CA par jour</Label>
+          <Label>Revenue by day</Label>
           <div style={{ overflowX: "auto" }}>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120, minWidth: Math.max(240, daily.length * 14) }}>
               {daily.map((d) => (
                 <div
                   key={d.day}
-                  title={`${dayLabel(d.day)} · ${eur(d.ca)} · ${d.nb} ventes`}
+                  title={`${dayLabel(d.day)} · ${eur(d.ca)} · ${d.nb} sales`}
                   style={{
                     flex: 1,
                     minWidth: 6,
@@ -308,17 +438,17 @@ export default function Dashboard({
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12 }}>
-            {daily.length} jours · total {eur(stats.ca, true)}
+            {daily.length} days · total {eur(stats.ca, true)}
           </div>
         </div>
       </div>
 
-      {/* Bloc A — jour de semaine + distribution tickets */}
+      {/* Weekday pattern + ticket distribution */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 20 }}>
         <div style={card}>
-          <Label>CA moyen par jour de semaine</Label>
+          <Label>Avg revenue by weekday</Label>
           {weekday.map((w, i) => (
-            <Bar
+            <BarRow
               key={w.weekday}
               label={w.day}
               value={eur(w.avg_ca, true)}
@@ -329,10 +459,10 @@ export default function Dashboard({
         </div>
 
         <div style={card}>
-          <Label>Distribution des tickets</Label>
+          <Label>Ticket distribution</Label>
           {tickets.median != null && (
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -8, marginBottom: 14 }}>
-              Ticket médian <b style={{ color: "var(--text)" }}>{eur(tickets.median)}</b>
+              Median ticket <b style={{ color: "var(--text)" }}>{eur(tickets.median)}</b> — robust to outliers
             </div>
           )}
           {tickets.distribution.map((d) => (
@@ -347,22 +477,18 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Bloc B — produits (chargé en différé) */}
-      <ProductSection
-        status={prodStatus}
-        products={products}
-        totalCa={stats.ca}
-      />
+      {/* Product intelligence (deferred) */}
+      <ProductSection status={prodStatus} products={products} totalCa={stats.ca} />
 
-      {/* Teaser Pro */}
+      {/* Pro teaser */}
       <div style={{ ...card, marginTop: 24, background: "var(--spec-soft)", borderColor: "rgba(37,84,199,0.25)" }}>
         <div className="label-mono" style={{ color: "var(--accent)", marginBottom: 6 }}>
-          Profit analytics · Pro
+          Profit analytics · €29.99/mo
         </div>
         <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-          Vous voyez vos <b>ventes</b>. Passez au calcul des <b>marges</b> : COGS par produit, seuil
-          de rentabilité quotidien, mix <b>par rentabilité</b> et réconciliation Revolut ↔ Vendus.{" "}
-          <span style={{ color: "var(--muted)" }}>Bientôt.</span>
+          You&apos;re seeing your <b>sales</b>. Upgrade to <b>margins</b>: COGS per product, daily
+          break-even, profitability-ranked mix and Revolut ↔ Vendus reconciliation.{" "}
+          <span style={{ color: "var(--muted)" }}>Coming soon — 14-day free trial.</span>
         </div>
       </div>
     </main>
@@ -381,15 +507,15 @@ function ProductSection({
   if (status === "loading") {
     return (
       <div style={{ ...card, textAlign: "center", color: "var(--muted)", fontSize: 13, padding: 28 }}>
-        <span className="label-mono">Analyse des produits…</span>
-        <div style={{ marginTop: 6 }}>Lecture des lignes de chaque ticket (quelques secondes)</div>
+        <span className="label-mono">Analyzing products…</span>
+        <div style={{ marginTop: 6 }}>Reading every ticket&apos;s line items (a few seconds)</div>
       </div>
     );
   }
   if (status === "error" || !products) {
     return (
       <div style={{ ...card, color: "var(--muted)", fontSize: 13 }}>
-        Détail produit indisponible pour le moment.
+        Product detail unavailable right now.
       </div>
     );
   }
@@ -401,9 +527,9 @@ function ProductSection({
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
-        {/* Top produits */}
+        {/* Top products */}
         <div style={card}>
-          <Label>Top produits (CA)</Label>
+          <Label>Top products (revenue)</Label>
           {topByRevenue.map((p, i) => (
             <div key={p.name} style={{ marginBottom: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5, gap: 8 }}>
@@ -422,16 +548,16 @@ function ProductSection({
           ))}
         </div>
 
-        {/* Mix catégorie + rotation lente */}
+        {/* Category mix + slow movers */}
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={card}>
-            <Label>Mix par catégorie (CA)</Label>
+            <Label>Category mix (revenue)</Label>
             {categoryMix.map((c) => (
-              <Bar key={c.label} label={c.label} value={`${eur(c.amount, true)} · ${c.pct}%`} pct={(c.amount / maxCat) * 100} strong />
+              <BarRow key={c.label} label={c.label} value={`${eur(c.amount, true)} · ${c.pct}%`} pct={(c.amount / maxCat) * 100} strong />
             ))}
           </div>
           <div style={card}>
-            <Label>Rotation la plus lente</Label>
+            <Label>Slowest movers</Label>
             {slowMovers.map((p) => (
               <div key={p.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8, gap: 8 }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
@@ -442,20 +568,20 @@ function ProductSection({
         </div>
       </div>
 
-      {/* Panier / attache */}
+      {/* Basket / attach */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
-        <StatTile label="Articles / ticket" value={tickets.items_per_ticket.toLocaleString("fr-FR")} sub={`${tickets.total.toLocaleString("fr-FR")} tickets`} />
-        <StatTile label="Taux d'attache" value={`${tickets.attach_rate}%`} sub={`${tickets.multi.toLocaleString("fr-FR")} tickets à 2+ articles`} />
-        <StatTile label="Part du CA · top 8" value={`${Math.round((topByRevenue.reduce((s, p) => s + p.revenue, 0) / (totalCa || 1)) * 100)}%`} sub="concentration des ventes" />
-        <StatTile label="Produits invendus" value={unsold.length.toLocaleString("fr-FR")} sub="0 vente sur la période" />
+        <StatTile label="Items / ticket" value={tickets.items_per_ticket.toLocaleString("en-GB")} sub={`${tickets.total.toLocaleString("en-GB")} tickets`} />
+        <StatTile label="Attach rate" value={`${tickets.attach_rate}%`} sub={`${tickets.multi.toLocaleString("en-GB")} tickets with 2+ items`} />
+        <StatTile label="Top 8 share of revenue" value={`${Math.round((topByRevenue.reduce((s, p) => s + p.revenue, 0) / (totalCa || 1)) * 100)}%`} sub="sales concentration" />
+        <StatTile label="Unsold products" value={unsold.length.toLocaleString("en-GB")} sub="0 sales this period" />
       </div>
 
-      {/* Invendus */}
+      {/* Unsold */}
       {unsold.length > 0 && (
         <div style={card}>
-          <Label>Produits invendus · {unsold.length}</Label>
+          <Label>Unsold products · {unsold.length}</Label>
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -8, marginBottom: 14 }}>
-            Actifs dans le catalogue, aucune vente sur la période — candidats à retirer de la carte.
+            Active in your catalog with zero sales this period — candidates to cut from the menu.
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: 200, overflowY: "auto" }}>
             {unsold.slice(0, 60).map((p) => (
@@ -476,7 +602,7 @@ function ProductSection({
             ))}
             {unsold.length > 60 && (
               <span style={{ fontSize: 12, color: "var(--faint)", padding: "4px 0" }}>
-                +{unsold.length - 60} autres
+                +{unsold.length - 60} more
               </span>
             )}
           </div>

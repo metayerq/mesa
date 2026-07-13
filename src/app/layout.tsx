@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mesa — Pilotez vos marges",
+  title: "Mesa — Know your margins",
   description:
-    "Mesa transforme votre POS Vendus en tableau de bord de marges : COGS, seuil de rentabilité, mix produit et réconciliation. Sales analytics gratuit, Profit analytics en Pro.",
+    "Mesa turns your Vendus POS into a margin dashboard: COGS, daily break-even, product mix and reconciliation. Sales analytics free forever, Profit analytics in Pro.",
 };
 
 export const viewport: Viewport = {

@@ -22,14 +22,14 @@ export default function OnboardingPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.error ?? "Une erreur est survenue.");
+        setError(data?.error ?? "Something went wrong.");
         setStatus("error");
         return;
       }
       setResult(data as ConnectResult);
       setStatus("idle");
     } catch {
-      setError("Connexion impossible. Vérifie ta connexion internet.");
+      setError("Connection failed. Check your internet connection.");
       setStatus("error");
     }
   }
@@ -55,11 +55,11 @@ export default function OnboardingPage() {
           ◳ Mesa · Connect Vendus
         </div>
         <h1 style={{ fontSize: 26, fontWeight: 650, margin: "0 0 8px", letterSpacing: "-0.02em" }}>
-          Voyez vos vraies données en 30 secondes
+          See your real numbers in 30 seconds
         </h1>
         <p style={{ color: "var(--muted)", fontSize: 15, lineHeight: 1.5, margin: "0 0 24px" }}>
-          Collez votre clé API Vendus. On récupère vos ventes des 30 derniers jours et on
-          affiche votre dashboard — aucune configuration.
+          Paste your Vendus API key. We pull your last 30 days of sales and build your
+          dashboard — zero setup.
         </p>
 
         <form onSubmit={connect}>
@@ -112,7 +112,7 @@ export default function OnboardingPage() {
               opacity: status === "loading" || !key.trim() ? 0.6 : 1,
             }}
           >
-            {status === "loading" ? "Import des ventes…" : "Voir mon dashboard →"}
+            {status === "loading" ? "Importing your sales…" : "See my dashboard →"}
           </button>
         </form>
 
@@ -127,11 +127,11 @@ export default function OnboardingPage() {
             lineHeight: 1.5,
           }}
         >
-          <b style={{ color: "var(--text)" }}>Lecture seule.</b> Mesa ne peut rien modifier
-          dans Vendus. Dans cette démo, la clé sert à l&apos;appel puis est oubliée — elle
-          n&apos;est pas stockée.
+          <b style={{ color: "var(--text)" }}>Read-only.</b> Mesa cannot modify anything in
+          Vendus. In this demo your key is used for the call and then forgotten — never
+          stored.
           <div style={{ marginTop: 8 }}>
-            La trouver : Vendus → <b>Configurações</b> → <b>Integrações → API</b>.
+            Find it: Vendus → <b>Configurações</b> → <b>Integrações → API</b>.
           </div>
         </div>
       </div>

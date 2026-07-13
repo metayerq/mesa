@@ -24,10 +24,10 @@ export async function POST(req: Request) {
     apiKey = String(body?.apiKey ?? "").trim();
     if (body?.days) days = Math.min(90, Math.max(1, Number(body.days) || 30));
   } catch {
-    return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
   if (!apiKey) {
-    return NextResponse.json({ error: "Clé API manquante" }, { status: 400 });
+    return NextResponse.json({ error: "Missing API key" }, { status: 400 });
   }
 
   const until = new Date();
@@ -42,11 +42,11 @@ export async function POST(req: Request) {
     return NextResponse.json(productAggregates(docs, catalog));
   } catch (e) {
     if (e instanceof VendusAuthError) {
-      return NextResponse.json({ error: "Clé API Vendus invalide." }, { status: 401 });
+      return NextResponse.json({ error: "Invalid Vendus API key." }, { status: 401 });
     }
     console.error("Vendus products error:", e);
     return NextResponse.json(
-      { error: "Impossible de charger les produits pour le moment." },
+      { error: "Couldn't load product detail right now." },
       { status: 502 }
     );
   }

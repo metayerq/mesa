@@ -190,7 +190,8 @@ function ymdLocal(d: Date): string {
 // Bloc A — intelligence temporelle (dérivée des documents déjà récupérés)
 // ───────────────────────────────────────────────────────────────────────────
 
-const WD_FR = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+const WD_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** CA moyen par jour de semaine sur la période (meilleur/pire jour). */
 export function weekdayPattern(docs: VendusDoc[]) {
@@ -207,7 +208,7 @@ export function weekdayPattern(docs: VendusDoc[]) {
   return [...byWd.entries()]
     .map(([wd, s]) => ({
       weekday: wd,
-      day: WD_FR[wd],
+      day: WD_EN[wd],
       avg_ca: s.days.size ? round2(s.ca / s.days.size) : 0,
       n_days: s.days.size,
     }))
@@ -266,10 +267,10 @@ export function ticketStats(docs: VendusDoc[]) {
     );
   }
   const buckets: [string, number, number][] = [
-    ["0–5 €", 0, 5],
-    ["5–10 €", 5, 10],
-    ["10–20 €", 10, 20],
-    ["20 €+", 20, Infinity],
+    ["€0–5", 0, 5],
+    ["€5–10", 5, 10],
+    ["€10–20", 10, 20],
+    ["€20+", 20, Infinity],
   ];
   const total = amounts.length || 1;
   const distribution = buckets.map(([label, lo, hi]) => {
@@ -277,6 +278,41 @@ export function ticketStats(docs: VendusDoc[]) {
     return { label, count, pct: Math.round((count / total) * 100) };
   });
   return { median, distribution };
+}
+
+/** Heatmap CA jour de semaine × heure (lignes Mon→Sun, heures 7–22). */
+export function weekdayHourHeatmap(docs: VendusDoc[]) {
+  const HOURS: number[] = [];
+  for (let h = 7; h <= 22; h++) HOURS.push(h);
+  const grid = new Map<number, number[]>();
+  const hourTotals = new Map<number, number>();
+  for (const d of docs) {
+    const lt = d.local_time ?? "";
+    const iso = lt.slice(0, 10);
+    const hour = parseInt(lt.slice(11, 13), 10);
+    if (!iso || !Number.isFinite(hour) || hour < 7 || hour > 22) continue;
+    const wd = new Date(iso + "T00:00:00").getDay();
+    const row = grid.get(wd) ?? new Array<number>(HOURS.length).fill(0);
+    row[hour - 7] += num(d.amount_gross);
+    grid.set(wd, row);
+    hourTotals.set(hour, (hourTotals.get(hour) ?? 0) + num(d.amount_gross));
+  }
+  const order = [1, 2, 3, 4, 5, 6, 0]; // Mon → Sun
+  const rows = order
+    .filter((wd) => grid.has(wd))
+    .map((wd) => ({ day: WD_SHORT[wd], cells: (grid.get(wd) ?? []).map(round2) }));
+  const max = Math.max(1, ...rows.flatMap((r) => r.cells));
+  const totalAll = [...hourTotals.values()].reduce((s, v) => s + v, 0) || 1;
+  const busiest = [...hourTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return {
+    hours: HOURS,
+    rows,
+    max,
+    busiestHours: busiest.map(([h]) => h).sort((a, b) => a - b),
+    busiestShare: Math.round(
+      (busiest.reduce((s, [, v]) => s + v, 0) / totalAll) * 100
+    ),
+  };
 }
 
 /** Heures creuses : dans la plage d'ouverture, les heures à CA ~nul. */

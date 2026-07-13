@@ -9,6 +9,7 @@ import {
   wowGrowth,
   ticketStats,
   deadHours,
+  weekdayHourHeatmap,
   VendusAuthError,
 } from "@/lib/vendus";
 
@@ -30,10 +31,10 @@ export async function POST(req: Request) {
     apiKey = String(body?.apiKey ?? "").trim();
     if (body?.days) days = Math.min(90, Math.max(1, Number(body.days) || 30));
   } catch {
-    return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
   if (!apiKey) {
-    return NextResponse.json({ error: "Clé API manquante" }, { status: 400 });
+    return NextResponse.json({ error: "Missing API key" }, { status: 400 });
   }
 
   const until = new Date();
@@ -59,17 +60,18 @@ export async function POST(req: Request) {
       wow: wowGrowth(docs, untilStr),
       tickets: ticketStats(docs),
       deadHours: deadHours(hourly),
+      heatmap: weekdayHourHeatmap(docs),
     });
   } catch (e) {
     if (e instanceof VendusAuthError) {
       return NextResponse.json(
-        { error: "Clé API Vendus invalide. Vérifie-la dans Vendus → Configurações → Integrações → API." },
+        { error: "Invalid Vendus API key. Check it in Vendus → Configurações → Integrações → API." },
         { status: 401 }
       );
     }
     console.error("Vendus connect error:", e);
     return NextResponse.json(
-      { error: "Impossible de contacter Vendus pour le moment. Réessaie." },
+      { error: "Couldn't reach Vendus right now. Please try again." },
       { status: 502 }
     );
   }
