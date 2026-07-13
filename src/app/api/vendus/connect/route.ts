@@ -5,6 +5,10 @@ import {
   hourlyBreakdown,
   paymentBreakdown,
   dailyBreakdown,
+  weekdayPattern,
+  wowGrowth,
+  ticketStats,
+  deadHours,
   VendusAuthError,
 } from "@/lib/vendus";
 
@@ -37,18 +41,24 @@ export async function POST(req: Request) {
   since.setDate(since.getDate() - (days - 1));
 
   try {
-    const docs = await getDocuments(apiKey, ymd(since), ymd(until));
+    const untilStr = ymd(until);
+    const docs = await getDocuments(apiKey, ymd(since), untilStr);
+    const hourly = hourlyBreakdown(docs);
     return NextResponse.json({
       meta: {
         since: ymd(since),
-        until: ymd(until),
+        until: untilStr,
         days,
         key_last4: apiKey.slice(-4),
       },
       stats: calcStats(docs),
-      hourly: hourlyBreakdown(docs),
+      hourly,
       payments: paymentBreakdown(docs),
       daily: dailyBreakdown(docs),
+      weekday: weekdayPattern(docs),
+      wow: wowGrowth(docs, untilStr),
+      tickets: ticketStats(docs),
+      deadHours: deadHours(hourly),
     });
   } catch (e) {
     if (e instanceof VendusAuthError) {

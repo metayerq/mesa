@@ -38,6 +38,7 @@ export default function OnboardingPage() {
     return (
       <Dashboard
         result={result}
+        apiKey={key.trim()}
         onReset={() => {
           setResult(null);
           setKey("");
