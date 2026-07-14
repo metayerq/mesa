@@ -26,6 +26,17 @@ export type ConnectResult = {
     busiestHours: number[];
     busiestShare: number;
   };
+  peaks: { label: string; tx: number }[];
+  curve: { time: string; ca_cum: number }[];
+  transactions: {
+    date: string;
+    time: string;
+    number: string;
+    type: string;
+    amount: number;
+    payment: string;
+    refund: boolean;
+  }[];
 };
 
 type ProductData = {
@@ -34,7 +45,60 @@ type ProductData = {
   unsold: { name: string; category: string; price: number }[];
   categoryMix: { label: string; amount: number; pct: number }[];
   tickets: { total: number; multi: number; single: number; attach_rate: number; items_per_ticket: number };
+  movers: { name: string; cur: number; prev: number; status: "new" | "dropped" | "changed"; pct: number | null }[];
 };
+
+type PeriodKey = "today" | "yesterday" | "week" | "lastweek" | "month" | "30d";
+
+const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "week", label: "This week" },
+  { key: "lastweek", label: "Last week" },
+  { key: "month", label: "This month" },
+  { key: "30d", label: "Last 30 days" },
+];
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function rangeFor(key: PeriodKey): { since: string; until: string } {
+  const now = new Date();
+  const today = ymd(now);
+  switch (key) {
+    case "today":
+      return { since: today, until: today };
+    case "yesterday": {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      return { since: ymd(y), until: ymd(y) };
+    }
+    case "week": {
+      const d = new Date(now);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // lundi
+      return { since: ymd(d), until: today };
+    }
+    case "lastweek": {
+      const d = new Date(now);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7);
+      const end = new Date(d);
+      end.setDate(end.getDate() + 6);
+      return { since: ymd(d), until: ymd(end) };
+    }
+    case "month": {
+      return { since: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), until: today };
+    }
+    case "30d":
+    default: {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 29);
+      return { since: ymd(d), until: today };
+    }
+  }
+}
 
 const eur = (n: number, compact = false) =>
   new Intl.NumberFormat("en-IE", {
@@ -87,7 +151,6 @@ function StatTile({
   );
 }
 
-/** Horizontal bar with label + value + %. */
 function BarRow({
   label,
   value,
@@ -155,20 +218,51 @@ export default function Dashboard({
   apiKey: string;
   onReset: () => void;
 }) {
-  const { stats, hourly, payments, daily, meta, weekday, wow, tickets, deadHours, heatmap } = result;
+  const [data, setData] = useState<ConnectResult>(result);
+  const [period, setPeriod] = useState<PeriodKey>("30d");
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState("");
 
-  // Product intelligence — loaded after first paint.
+  async function selectPeriod(key: PeriodKey) {
+    if (key === period || switching) return;
+    setSwitching(true);
+    setSwitchError("");
+    try {
+      const res = await fetch("/api/vendus/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey, ...rangeFor(key) }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setSwitchError(json?.error ?? "Couldn't load this period.");
+        return;
+      }
+      setData(json as ConnectResult);
+      setPeriod(key);
+    } catch {
+      setSwitchError("Couldn't load this period. Check your connection.");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  const { stats, hourly, payments, daily, meta, weekday, wow, tickets, deadHours, heatmap, peaks, curve, transactions } = data;
+
+  // Product intelligence — reloaded whenever the period changes.
   const [products, setProducts] = useState<ProductData | null>(null);
   const [prodStatus, setProdStatus] = useState<"loading" | "done" | "error">("loading");
 
   useEffect(() => {
     let alive = true;
+    setProdStatus("loading");
+    setProducts(null);
     (async () => {
       try {
         const res = await fetch("/api/vendus/products", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey, days: meta.days }),
+          body: JSON.stringify({ apiKey, since: meta.since, until: meta.until }),
         });
         if (!alive) return;
         if (!res.ok) {
@@ -184,7 +278,10 @@ export default function Dashboard({
     return () => {
       alive = false;
     };
-  }, [apiKey, meta.days]);
+  }, [apiKey, meta.since, meta.until]);
+
+  const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "Custom";
+  const singleDay = meta.days === 1;
 
   const bestDay = daily.reduce((b, d) => (d.ca > b.ca ? d : b), { day: "—", ca: 0, nb: 0 });
   const peakHour = hourly.reduce((b, h) => (h.ca > b.ca ? h : b), { hour: 0, label: "—", ca: 0, nb: 0 });
@@ -194,9 +291,9 @@ export default function Dashboard({
   const maxWeekday = Math.max(1, ...weekday.map((w) => w.avg_ca));
   const maxDist = Math.max(1, ...tickets.distribution.map((d) => d.count));
 
-  // Today vs previous open day — derived from the daily series.
   const todayEntry = daily.find((d) => d.day === meta.until);
   const prevOpen = [...daily].filter((d) => d.day < meta.until && d.ca > 0).pop();
+  const showTodayStrip = !singleDay && !!todayEntry;
 
   const dayLabel = (iso: string) =>
     iso === "—"
@@ -210,7 +307,16 @@ export default function Dashboard({
   const deadSet = new Set(deadHours);
 
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: "28px 20px 64px" }}>
+    <main
+      style={{
+        maxWidth: 980,
+        margin: "0 auto",
+        padding: "28px 20px 64px",
+        opacity: switching ? 0.55 : 1,
+        pointerEvents: switching ? "none" : "auto",
+        transition: "opacity .2s ease",
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -219,22 +325,22 @@ export default function Dashboard({
           alignItems: "baseline",
           flexWrap: "wrap",
           gap: 12,
-          marginBottom: 24,
+          marginBottom: 16,
         }}
       >
         <div>
           <div className="label-mono">◳ Mesa · live</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
             <h1 style={{ fontSize: 22, fontWeight: 650, margin: 0 }}>
-              Your activity, last {meta.days} days
+              Your activity — {periodLabel.toLowerCase()}
             </h1>
-            <DeltaBadge pct={wow.growth_ca} suffix="7d" />
+            {!singleDay && <DeltaBadge pct={wow.growth_ca} suffix="7d" />}
           </div>
         </div>
         <div style={{ textAlign: "right", fontSize: 12, color: "var(--muted)" }}>
           <div className="label-mono">Vendus ····{meta.key_last4}</div>
           <div style={{ marginTop: 4 }}>
-            {meta.since} → {meta.until}
+            {meta.since === meta.until ? meta.since : `${meta.since} → ${meta.until}`}
           </div>
           <button
             onClick={onReset}
@@ -245,8 +351,42 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Today strip */}
-      {todayEntry && (
+      {/* Period selector */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        {PERIODS.map((p) => {
+          const active = p.key === period;
+          return (
+            <button
+              key={p.key}
+              onClick={() => selectPeriod(p.key)}
+              style={{
+                fontSize: 13,
+                fontWeight: active ? 600 : 400,
+                padding: "7px 14px",
+                borderRadius: 20,
+                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                background: active ? "var(--accent)" : "var(--bg-card)",
+                color: active ? "#fff" : "var(--muted)",
+                cursor: "pointer",
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        {switching && (
+          <span className="label-mono" style={{ alignSelf: "center" }}>
+            Loading…
+          </span>
+        )}
+      </div>
+      {switchError && (
+        <div style={{ color: "var(--red)", fontSize: 13, marginBottom: 8 }}>{switchError}</div>
+      )}
+      <div style={{ marginBottom: 24 }} />
+
+      {/* Today strip (multi-day periods that include today) */}
+      {showTodayStrip && todayEntry && (
         <>
           <div className="label-mono" style={{ marginBottom: 10 }}>
             — Today
@@ -269,9 +409,7 @@ export default function Dashboard({
               value={todayEntry.nb ? eur(todayEntry.ca / todayEntry.nb) : "—"}
               badge={
                 prevOpen && todayEntry.nb && prevOpen.nb ? (
-                  <DeltaBadge
-                    pct={pctDelta(todayEntry.ca / todayEntry.nb, prevOpen.ca / prevOpen.nb)}
-                  />
+                  <DeltaBadge pct={pctDelta(todayEntry.ca / todayEntry.nb, prevOpen.ca / prevOpen.nb)} />
                 ) : undefined
               }
               sub={
@@ -282,7 +420,7 @@ export default function Dashboard({
             />
           </div>
           <div className="label-mono" style={{ marginBottom: 10 }}>
-            — Last {meta.days} days
+            — {periodLabel}
           </div>
         </>
       )}
@@ -296,8 +434,50 @@ export default function Dashboard({
           value={eur(stats.ticket)}
           sub={tickets.median != null ? `median ${eur(tickets.median)}` : `${eur(stats.ticket_ht)} excl. VAT`}
         />
-        <StatTile label="Best day" value={eur(bestDay.ca, true)} sub={dayLabel(bestDay.day)} />
+        {singleDay ? (
+          <StatTile label="Peak hour" value={peakHour.label} sub={`${eur(peakHour.ca, true)} in that hour`} />
+        ) : (
+          <StatTile label="Best day" value={eur(bestDay.ca, true)} sub={dayLabel(bestDay.day)} />
+        )}
       </div>
+
+      {/* Activity peaks */}
+      {peaks.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          <span className="label-mono">Activity peaks</span>
+          {peaks.map((p) => (
+            <span
+              key={p.label}
+              style={{
+                ...mono,
+                fontSize: 12.5,
+                fontWeight: 600,
+                background: "var(--text)",
+                color: "var(--bg)",
+                padding: "6px 12px",
+                borderRadius: 20,
+                whiteSpace: "nowrap",
+              }}
+            >
+              ⚡ {p.label} · {p.tx} tx
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Sales evolution (single day) */}
+      {curve.length > 1 && (
+        <div style={{ ...card, marginBottom: 20 }}>
+          <div className="label-mono" style={{ marginBottom: 4 }}>
+            Sales evolution — cumulative
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+            {curve[0].time} → {curve[curve.length - 1].time} · finished at{" "}
+            <b style={{ color: "var(--text)" }}>{eur(curve[curve.length - 1].ca_cum)}</b>
+          </div>
+          <CumulativeCurve curve={curve} />
+        </div>
+      )}
 
       {/* Revenue by hour */}
       <div style={{ ...card, marginBottom: 20 }}>
@@ -345,8 +525,8 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Rush heatmap */}
-      {heatmap.rows.length > 0 && (
+      {/* Rush heatmap (multi-day) */}
+      {!singleDay && heatmap.rows.length > 1 && (
         <div style={{ ...card, marginBottom: 20 }}>
           <div className="label-mono" style={{ marginBottom: 4 }}>
             Rush heatmap — revenue by weekday × hour
@@ -416,69 +596,135 @@ export default function Dashboard({
           ))}
         </div>
 
-        <div style={card}>
-          <Label>Revenue by day</Label>
-          <div style={{ overflowX: "auto" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120, minWidth: Math.max(240, daily.length * 14) }}>
-              {daily.map((d) => (
-                <div
-                  key={d.day}
-                  title={`${dayLabel(d.day)} · ${eur(d.ca)} · ${d.nb} sales`}
-                  style={{
-                    flex: 1,
-                    minWidth: 6,
-                    height: `${Math.round((d.ca / maxDay) * 118)}px`,
-                    minHeight: d.ca > 0 ? 2 : 0,
-                    background: d.day === bestDay.day ? "var(--accent)" : "var(--spec-soft)",
-                    borderTop: d.day === bestDay.day ? "none" : "2px solid var(--accent)",
-                    borderRadius: 2,
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12 }}>
-            {daily.length} days · total {eur(stats.ca, true)}
-          </div>
-        </div>
-      </div>
-
-      {/* Weekday pattern + ticket distribution */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 20 }}>
-        <div style={card}>
-          <Label>Avg revenue by weekday</Label>
-          {weekday.map((w, i) => (
-            <BarRow
-              key={w.weekday}
-              label={w.day}
-              value={eur(w.avg_ca, true)}
-              pct={(w.avg_ca / maxWeekday) * 100}
-              strong={i === 0}
-            />
-          ))}
-        </div>
-
-        <div style={card}>
-          <Label>Ticket distribution</Label>
-          {tickets.median != null && (
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -8, marginBottom: 14 }}>
-              Median ticket <b style={{ color: "var(--text)" }}>{eur(tickets.median)}</b> — robust to outliers
-            </div>
-          )}
-          {tickets.distribution.map((d) => (
-            <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={{ ...mono, fontSize: 12, width: 56, color: "var(--muted)" }}>{d.label}</span>
-              <div style={{ flex: 1, height: 20, background: "var(--bg-hover)", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ width: `${(d.count / maxDist) * 100}%`, height: "100%", background: "var(--spec-soft)", borderRight: "2px solid var(--accent)" }} />
+        {!singleDay && (
+          <div style={card}>
+            <Label>Revenue by day</Label>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120, minWidth: Math.max(240, daily.length * 14) }}>
+                {daily.map((d) => (
+                  <div
+                    key={d.day}
+                    title={`${dayLabel(d.day)} · ${eur(d.ca)} · ${d.nb} sales`}
+                    style={{
+                      flex: 1,
+                      minWidth: 6,
+                      height: `${Math.round((d.ca / maxDay) * 118)}px`,
+                      minHeight: d.ca > 0 ? 2 : 0,
+                      background: d.day === bestDay.day ? "var(--accent)" : "var(--spec-soft)",
+                      borderTop: d.day === bestDay.day ? "none" : "2px solid var(--accent)",
+                      borderRadius: 2,
+                    }}
+                  />
+                ))}
               </div>
-              <span style={{ ...mono, fontSize: 12, width: 44, textAlign: "right" }}>{d.pct}%</span>
             </div>
-          ))}
-        </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12 }}>
+              {daily.length} days · total {eur(stats.ca, true)}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Weekday pattern + ticket distribution (multi-day) */}
+      {!singleDay && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 20 }}>
+          <div style={card}>
+            <Label>Avg revenue by weekday</Label>
+            {weekday.map((w, i) => (
+              <BarRow
+                key={w.weekday}
+                label={w.day}
+                value={eur(w.avg_ca, true)}
+                pct={(w.avg_ca / maxWeekday) * 100}
+                strong={i === 0}
+              />
+            ))}
+          </div>
+
+          <div style={card}>
+            <Label>Ticket distribution</Label>
+            {tickets.median != null && (
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -8, marginBottom: 14 }}>
+                Median ticket <b style={{ color: "var(--text)" }}>{eur(tickets.median)}</b> — robust to outliers
+              </div>
+            )}
+            {tickets.distribution.map((d) => (
+              <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <span style={{ ...mono, fontSize: 12, width: 56, color: "var(--muted)" }}>{d.label}</span>
+                <div style={{ flex: 1, height: 20, background: "var(--bg-hover)", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${(d.count / maxDist) * 100}%`, height: "100%", background: "var(--spec-soft)", borderRight: "2px solid var(--accent)" }} />
+                </div>
+                <span style={{ ...mono, fontSize: 12, width: 44, textAlign: "right" }}>{d.pct}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Product intelligence (deferred) */}
       <ProductSection status={prodStatus} products={products} totalCa={stats.ca} />
+
+      {/* Latest transactions */}
+      {transactions.length > 0 && (
+        <div style={{ ...card, marginTop: 20 }}>
+          <Label>
+            {singleDay ? "Transactions" : "Latest transactions"} · {transactions.length}
+          </Label>
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  {["Time", "Document", "Type", "Payment", "Amount"].map((h) => (
+                    <th
+                      key={h}
+                      className="label-mono"
+                      style={{
+                        textAlign: h === "Amount" ? "right" : "left",
+                        padding: "0 8px 10px 0",
+                        position: "sticky",
+                        top: 0,
+                        background: "var(--bg-card)",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((t) => (
+                  <tr key={`${t.number}-${t.date}-${t.time}`} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ ...mono, padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>
+                      {singleDay ? t.time : `${t.date.slice(5)} ${t.time}`}
+                    </td>
+                    <td style={{ padding: "9px 8px 9px 0", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
+                      {t.number}
+                    </td>
+                    <td style={{ padding: "9px 8px 9px 0" }}>
+                      <span
+                        style={{
+                          ...mono,
+                          fontSize: 11,
+                          border: "1px solid var(--border)",
+                          borderRadius: 4,
+                          padding: "2px 6px",
+                          color: t.refund ? "var(--red)" : "var(--muted)",
+                        }}
+                      >
+                        {t.type}
+                      </span>
+                    </td>
+                    <td style={{ padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>{t.payment}</td>
+                    <td style={{ ...mono, padding: "9px 0", textAlign: "right", color: t.refund ? "var(--red)" : "var(--text)", whiteSpace: "nowrap" }}>
+                      {eur(t.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Pro teaser */}
       <div style={{ ...card, marginTop: 24, background: "var(--spec-soft)", borderColor: "rgba(37,84,199,0.25)" }}>
@@ -492,6 +738,33 @@ export default function Dashboard({
         </div>
       </div>
     </main>
+  );
+}
+
+function CumulativeCurve({ curve }: { curve: { time: string; ca_cum: number }[] }) {
+  const W = 640;
+  const H = 150;
+  const PAD = 8;
+  const max = curve[curve.length - 1].ca_cum || 1;
+  const x = (i: number) => PAD + (i / (curve.length - 1)) * (W - 2 * PAD);
+  const y = (v: number) => H - PAD - (v / max) * (H - 2 * PAD);
+  const points = curve.map((p, i) => `${x(i)},${y(p.ca_cum)}`).join(" ");
+  const area = `${PAD},${H - PAD} ${points} ${W - PAD},${H - PAD}`;
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 420, display: "block" }}>
+        <polygon points={area} fill="rgba(37,84,199,0.08)" />
+        <polyline
+          points={points}
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <circle cx={x(curve.length - 1)} cy={y(max)} r="3.5" fill="var(--accent)" />
+      </svg>
+    </div>
   );
 }
 
@@ -520,7 +793,7 @@ function ProductSection({
     );
   }
 
-  const { topByRevenue, slowMovers, unsold, categoryMix, tickets } = products;
+  const { topByRevenue, slowMovers, unsold, categoryMix, tickets, movers } = products;
   const maxTop = Math.max(1, ...topByRevenue.map((p) => p.revenue));
   const maxCat = Math.max(1, ...categoryMix.map((c) => c.amount));
 
@@ -567,6 +840,29 @@ function ProductSection({
           </div>
         </div>
       </div>
+
+      {/* Top movers 7d vs 7d */}
+      {movers.length > 0 && (
+        <div style={{ ...card, marginBottom: 20 }}>
+          <Label>Top movers — last 7 days vs previous 7</Label>
+          {movers.map((m) => (
+            <div key={m.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 10, gap: 8 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+              <span style={{ ...mono, whiteSpace: "nowrap", fontSize: 12.5 }}>
+                {m.status === "new" && <span style={{ color: "var(--green)", fontWeight: 600 }}>new</span>}
+                {m.status === "dropped" && <span style={{ color: "var(--red)", fontWeight: 600 }}>▼ −100%</span>}
+                {m.status === "changed" && m.pct != null && (
+                  <span style={{ color: m.pct >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                    {m.pct >= 0 ? "▲ +" : "▼ "}
+                    {m.pct}%
+                  </span>
+                )}
+                <span style={{ color: "var(--muted)" }}> · {eur(m.cur)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Basket / attach */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>

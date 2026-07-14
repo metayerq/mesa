@@ -17,6 +17,7 @@ export type VendusPayment = { title?: string; amount?: number | string };
 export type VendusDoc = {
   id?: number;
   type?: string;
+  number?: string; // ex. "FS 01P2026/475"
   amount_gross?: number | string; // TTC
   amount_net?: number | string; // HT
   local_time?: string; // "YYYY-MM-DD HH:MM:SS"
@@ -327,6 +328,60 @@ export function deadHours(hourly: { hour: number; ca: number }[]): number[] {
     .map((h) => h.hour);
 }
 
+/** Dernières transactions, triées de la plus récente à la plus ancienne. */
+export function transactionList(docs: VendusDoc[], limit = 30) {
+  return [...docs]
+    .filter((d) => d.local_time)
+    .sort((a, b) => ((b.local_time ?? "") > (a.local_time ?? "") ? 1 : -1))
+    .slice(0, limit)
+    .map((d) => ({
+      date: (d.local_time ?? "").slice(0, 10),
+      time: (d.local_time ?? "").slice(11, 16),
+      number: d.number ?? String(d.id ?? ""),
+      type: d.type ?? "",
+      amount: round2(num(d.amount_gross)),
+      payment: d.payments?.[0]?.title ?? "",
+      refund: !!d._refund,
+    }));
+}
+
+/** Fenêtres de rush : ≥ threshold tx dans une fenêtre glissante (max 3, sans chevauchement). */
+export function rushWindows(docs: VendusDoc[], windowMinutes = 60, threshold = 5) {
+  const times = docs
+    .filter((d) => !d._refund && d.local_time)
+    .map((d) => new Date((d.local_time as string).replace(" ", "T")))
+    .filter((t) => !Number.isNaN(t.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  const win = windowMinutes * 60 * 1000;
+  const candidates: { start: Date; end: Date; n: number }[] = [];
+  for (let i = 0; i < times.length; i++) {
+    let j = i;
+    while (j + 1 < times.length && times[j + 1].getTime() - times[i].getTime() <= win) j++;
+    const n = j - i + 1;
+    if (n >= threshold) candidates.push({ start: times[i], end: times[j], n });
+  }
+  candidates.sort((a, b) => b.n - a.n);
+  const picked: typeof candidates = [];
+  for (const c of candidates) {
+    if (picked.length >= 3) break;
+    if (picked.every((p) => c.end < p.start || c.start > p.end)) picked.push(c);
+  }
+  picked.sort((a, b) => a.start.getTime() - b.start.getTime());
+  const fmt = (t: Date) =>
+    `${String(t.getHours()).padStart(2, "0")}h${String(t.getMinutes()).padStart(2, "0")}`;
+  return picked.map((p) => ({ label: `${fmt(p.start)}–${fmt(p.end)}`, tx: p.n }));
+}
+
+/** Courbe cumulée intraday (pertinente sur une période d'un seul jour). */
+export function cumulativeCurve(docs: VendusDoc[]) {
+  const pts = docs
+    .filter((d) => d.local_time)
+    .map((d) => ({ time: (d.local_time as string).slice(11, 16), ca: num(d.amount_gross) }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  let cum = 0;
+  return pts.map((p) => ({ time: p.time, ca_cum: round2((cum += p.ca)) }));
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Bloc B — intelligence produit (nécessite les lignes de chaque ticket)
 // ───────────────────────────────────────────────────────────────────────────
@@ -410,6 +465,55 @@ export async function getDocumentsWithItems(
     Array.from({ length: Math.min(CONCURRENCY, docs.length || 1) }, worker)
   );
   return enriched.filter(Boolean);
+}
+
+export type Mover = {
+  name: string;
+  cur: number;
+  prev: number;
+  status: "new" | "dropped" | "changed";
+  pct: number | null;
+};
+
+/** Top movers : CA par produit, 7 derniers jours vs les 7 précédents (docs avec items). */
+export function topMovers(docs: VendusDoc[], until: string): Mover[] {
+  const u = new Date(until + "T00:00:00");
+  const dstr = (off: number) => {
+    const d = new Date(u);
+    d.setDate(d.getDate() - off);
+    return ymdLocal(d);
+  };
+  const curSince = dstr(6);
+  const prevSince = dstr(13);
+  const prevUntil = dstr(7);
+
+  const cur = new Map<string, number>();
+  const prev = new Map<string, number>();
+  for (const d of docs) {
+    const day = (d.local_time ?? "").slice(0, 10);
+    if (!day || day < prevSince || day > until) continue;
+    const target = day >= curSince ? cur : day <= prevUntil ? prev : null;
+    if (!target) continue;
+    for (const it of d.items ?? []) {
+      const name = (it.title ?? "").trim();
+      if (!name) continue;
+      const rev = num(it.amounts?.gross_total ?? it.amounts?.net_total);
+      target.set(name, (target.get(name) ?? 0) + rev);
+    }
+  }
+
+  const names = new Set([...cur.keys(), ...prev.keys()]);
+  return [...names]
+    .map((name) => {
+      const c = round2(cur.get(name) ?? 0);
+      const p = round2(prev.get(name) ?? 0);
+      const status: Mover["status"] =
+        p === 0 && c > 0 ? "new" : c === 0 && p > 0 ? "dropped" : "changed";
+      return { name, cur: c, prev: p, status, pct: p ? Math.round(((c - p) / p) * 100) : null };
+    })
+    .filter((m) => Math.abs(m.cur - m.prev) >= 1)
+    .sort((a, b) => Math.abs(b.cur - b.prev) - Math.abs(a.cur - a.prev))
+    .slice(0, 6);
 }
 
 /** Agrégats produit : top/flop, invendus, mix catégorie, articles par ticket. */
