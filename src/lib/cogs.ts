@@ -201,6 +201,8 @@ export function sampleState(): CogsState {
   const honey = ing("Honey", 8.5, 1, "kg");
   const nuts = ing("Mixed nuts", 14.0, 1, "kg");
   const yogurt = ing("Greek yogurt", 4.2, 1, "kg");
+  // Le packaging se modélise comme un ingrédient à l'unité.
+  const cup = ing("Takeaway cup + lid", 0.18, 1, "unit");
 
   const granolaBatch: Recipe = {
     id: uid(),
@@ -245,6 +247,7 @@ export function sampleState(): CogsState {
       lines: [
         { kind: "ingredient", refId: matcha.id, qty: 4, unit: "g" },
         { kind: "ingredient", refId: oat.id, qty: 200, unit: "ml" },
+        { kind: "ingredient", refId: cup.id, qty: 1, unit: "unit" },
       ],
       yield: null,
       sellPrice: 5.5,
@@ -267,5 +270,5 @@ export function sampleState(): CogsState {
     },
   ];
 
-  return { ingredients: [coffee, milk, oat, matcha, oats, honey, nuts, yogurt], recipes };
+  return { ingredients: [coffee, milk, oat, matcha, oats, honey, nuts, yogurt, cup], recipes };
 }

@@ -11,6 +11,7 @@ import {
   type Unit,
   UNITS,
   TAX_LABELS,
+  TAX_RATES,
   ingredientUnitCost,
   unitCostLabel,
   recipeCost,
@@ -78,6 +79,7 @@ export default function CogsPage() {
   const [state, setState] = useState<CogsState>({ ingredients: [], recipes: [] });
   const [loaded, setLoaded] = useState(false);
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     setState(loadState());
@@ -94,6 +96,7 @@ export default function CogsPage() {
   const pricedEconomics = useMemo(
     () =>
       state.recipes
+        .filter((r) => r.lines.length > 0) // shells importés sans recette : exclus de la moyenne
         .map((r) => recipeEconomics(r, state))
         .filter((e) => e.foodCostPct != null && !e.hasError),
     [state]
@@ -168,7 +171,10 @@ export default function CogsPage() {
             computes the real cost and margin of every item on your menu.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <button style={btnPrimary} onClick={() => commit(sampleState())}>
+            <button style={btnPrimary} onClick={() => setImportOpen(true)}>
+              Import my menu from Vendus
+            </button>
+            <button style={btnGhost} onClick={() => commit(sampleState())}>
               Load sample café data
             </button>
             <button
@@ -201,11 +207,21 @@ export default function CogsPage() {
               state={state}
               commit={commit}
               onClose={() => setEditingRecipeId(null)}
+              onOpen={setEditingRecipeId}
             />
           ) : (
-            <RecipesPanel state={state} commit={commit} onEdit={setEditingRecipeId} />
+            <RecipesPanel
+              state={state}
+              commit={commit}
+              onEdit={setEditingRecipeId}
+              onImport={() => setImportOpen(true)}
+            />
           )}
         </div>
+      )}
+
+      {importOpen && (
+        <ImportModal state={state} commit={commit} onClose={() => setImportOpen(false)} />
       )}
     </main>
   );
@@ -365,17 +381,19 @@ function RecipesPanel({
   state,
   commit,
   onEdit,
+  onImport,
 }: {
   state: CogsState;
   commit: (s: CogsState) => void;
   onEdit: (id: string) => void;
+  onImport: () => void;
 }) {
-  function addRecipe() {
+  function addRecipe(preset: "menu" | "prep") {
     const r: Recipe = {
       id: uid(),
       name: "",
       lines: [],
-      yield: null,
+      yield: preset === "prep" ? { qty: 1, unit: "kg" } : null,
       sellPrice: null,
       taxId: "INT",
       vendusProductId: null,
@@ -386,12 +404,23 @@ function RecipesPanel({
 
   return (
     <div style={card}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
         <span className="label-mono">Recipes · {state.recipes.length}</span>
-        <button style={{ ...btnGhost, padding: "5px 12px" }} onClick={addRecipe}>
-          + New recipe
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={{ ...btnGhost, padding: "5px 12px" }} onClick={() => addRecipe("menu")}>
+            + Menu item
+          </button>
+          <button style={{ ...btnGhost, padding: "5px 12px" }} onClick={() => addRecipe("prep")}>
+            + Prep / batch
+          </button>
+        </div>
       </div>
+      <button
+        style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: 0, marginBottom: 12 }}
+        onClick={onImport}
+      >
+        Import my menu from Vendus →
+      </button>
       {state.recipes.map((r) => {
         const eco = recipeEconomics(r, state);
         return (
@@ -416,7 +445,7 @@ function RecipesPanel({
                     className="label-mono"
                     style={{ marginLeft: 8, fontSize: 10, color: "var(--accent)", background: "var(--spec-soft)", padding: "2px 6px", borderRadius: 4 }}
                   >
-                    component
+                    prep
                   </span>
                 )}
                 {r.vendusProductId && (
@@ -429,12 +458,14 @@ function RecipesPanel({
                 )}
               </div>
               <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                cost {eco.hasError ? "⚠ incomplete" : eur(eco.cost)}
-                {r.yield && eco.costPerYieldUnit != null && ` · €${eco.costPerYieldUnit.toFixed(4)}/${r.yield.unit === "kg" || r.yield.unit === "l" ? r.yield.unit : r.yield.unit}`}
+                {r.lines.length === 0
+                  ? "no ingredients yet"
+                  : `cost ${eco.hasError ? "⚠ incomplete" : eur(eco.cost)}`}
+                {r.lines.length > 0 && r.yield && eco.costPerYieldUnit != null && ` · €${eco.costPerYieldUnit.toFixed(4)}/${r.yield.unit}`}
                 {r.sellPrice != null && ` · sells ${eur(r.sellPrice)}`}
               </div>
             </div>
-            {eco.foodCostPct != null && (
+            {eco.foodCostPct != null && r.lines.length > 0 && (
               <span style={{ ...mono, fontSize: 12.5, fontWeight: 600, color: foodCostColor(eco.foodCostPct), whiteSpace: "nowrap" }}>
                 {eco.foodCostPct.toFixed(1)}%
               </span>
@@ -453,14 +484,18 @@ function RecipeEditor({
   state,
   commit,
   onClose,
+  onOpen,
 }: {
   recipe: Recipe;
   state: CogsState;
   commit: (s: CogsState) => void;
   onClose: () => void;
+  onOpen: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<Recipe>({ ...recipe, lines: recipe.lines.map((l) => ({ ...l })) });
   const [vendusOpen, setVendusOpen] = useState(false);
+  // Les preps démarrent sans bloc prix ; un item de menu l'affiche d'emblée.
+  const [showPricing, setShowPricing] = useState(recipe.sellPrice != null || recipe.yield == null);
 
   // Économie calculée sur le draft, dans l'état où il serait une fois sauvé.
   const previewState: CogsState = {
@@ -488,6 +523,22 @@ function RecipeEditor({
     onClose();
   }
 
+  function duplicate() {
+    const copy: Recipe = {
+      ...draft,
+      id: uid(),
+      name: draft.name ? `${draft.name} (copy)` : "",
+      vendusProductId: null,
+      lines: draft.lines.map((l) => ({ ...l })),
+      yield: draft.yield ? { ...draft.yield } : null,
+    };
+    commit({
+      ...state,
+      recipes: [...state.recipes.map((r) => (r.id === draft.id ? draft : r)), copy],
+    });
+    onOpen(copy.id);
+  }
+
   function setLine(idx: number, patch: Partial<RecipeLine>) {
     setDraft({
       ...draft,
@@ -501,12 +552,20 @@ function RecipeEditor({
         <button style={{ ...btnGhost, padding: "5px 12px" }} onClick={() => { save(); onClose(); }}>
           ← Save & back
         </button>
-        <button
-          style={{ background: "none", border: "none", color: "var(--red)", cursor: "pointer", fontSize: 12 }}
-          onClick={remove}
-        >
-          Delete
-        </button>
+        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          <button
+            style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 12 }}
+            onClick={duplicate}
+          >
+            Duplicate
+          </button>
+          <button
+            style={{ background: "none", border: "none", color: "var(--red)", cursor: "pointer", fontSize: 12 }}
+            onClick={remove}
+          >
+            Delete
+          </button>
+        </div>
       </div>
 
       <input
@@ -648,31 +707,59 @@ function RecipeEditor({
 
       {/* Pricing */}
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, color: "var(--muted)" }}>Selling price (incl. VAT)</span>
-          <input
-            style={{ ...inputStyle, width: 90 }}
-            type="number"
-            min={0}
-            step="0.1"
-            value={draft.sellPrice ?? ""}
-            placeholder="—"
-            onChange={(e) =>
-              setDraft({ ...draft, sellPrice: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })
-            }
-          />
-          <select
-            style={{ ...inputStyle, width: 170 }}
-            value={draft.taxId}
-            onChange={(e) => setDraft({ ...draft, taxId: e.target.value as TaxId })}
-          >
-            {(Object.keys(TAX_LABELS) as TaxId[]).map((t) => (
-              <option key={t} value={t}>
-                VAT {TAX_LABELS[t]}
-              </option>
-            ))}
-          </select>
-        </div>
+        {showPricing ? (
+          <>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>Selling price (incl. VAT)</span>
+              <input
+                style={{ ...inputStyle, width: 90 }}
+                type="number"
+                min={0}
+                step="0.1"
+                value={draft.sellPrice ?? ""}
+                placeholder="—"
+                onChange={(e) =>
+                  setDraft({ ...draft, sellPrice: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })
+                }
+              />
+              <select
+                style={{ ...inputStyle, width: 170 }}
+                value={draft.taxId}
+                onChange={(e) => setDraft({ ...draft, taxId: e.target.value as TaxId })}
+              >
+                {(Object.keys(TAX_LABELS) as TaxId[]).map((t) => (
+                  <option key={t} value={t}>
+                    VAT {TAX_LABELS[t]}
+                  </option>
+                ))}
+              </select>
+              {draft.yield && (
+                <button
+                  style={{ background: "none", border: "none", color: "var(--faint)", cursor: "pointer", fontSize: 12 }}
+                  onClick={() => {
+                    setShowPricing(false);
+                    setDraft({ ...draft, sellPrice: null });
+                  }}
+                >
+                  not sold ×
+                </button>
+              )}
+            </div>
+            {eco.cost > 0 && !costed.hasError && (
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                Suggested price for food cost{" "}
+                {[25, 30, 35]
+                  .map((t) => `${t}%: ${eur((eco.cost / (t / 100)) * (1 + TAX_RATES[draft.taxId]))}`)
+                  .join(" · ")}{" "}
+                (incl. VAT)
+              </div>
+            )}
+          </>
+        ) : (
+          <button style={btnGhost} onClick={() => setShowPricing(true)}>
+            + Also sold on the menu
+          </button>
+        )}
       </div>
 
       {/* Economics */}
@@ -706,15 +793,24 @@ function RecipeEditor({
               Sync cost & price to Vendus…
             </button>
           </div>
-        ) : (
+        ) : draft.sellPrice ? (
           <button
-            style={{ ...btnPrimary, opacity: draft.sellPrice && !costed.hasError && draft.name.trim() ? 1 : 0.5 }}
-            disabled={!draft.sellPrice || costed.hasError || !draft.name.trim()}
+            style={{ ...btnPrimary, opacity: !costed.hasError && draft.name.trim() ? 1 : 0.5 }}
+            disabled={costed.hasError || !draft.name.trim()}
             onClick={() => setVendusOpen(true)}
-            title={!draft.sellPrice ? "Set a selling price first" : costed.hasError ? "Fix recipe errors first" : ""}
+            title={costed.hasError ? "Fix recipe errors first" : ""}
           >
             Create product on Vendus…
           </button>
+        ) : draft.yield ? (
+          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+            Preps stay in Mesa — nothing is pushed to Vendus. Use{" "}
+            <b style={{ color: "var(--text)" }}>+ Also sold on the menu</b> if you also sell it.
+          </div>
+        ) : (
+          <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            Set a selling price to create this product on Vendus.
+          </div>
         )}
       </div>
 
@@ -879,6 +975,193 @@ function Row({ k, v }: { k: string; v: string }) {
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
       <span style={{ color: "var(--muted)" }}>{k}</span>
       <span style={{ fontWeight: 500, textAlign: "right" }}>{v}</span>
+    </div>
+  );
+}
+
+// ── Import menu from Vendus ─────────────────────────────────────────────────
+
+type CatalogProduct = { id: number; name: string; category: string; price: number };
+
+function ImportModal({
+  state,
+  commit,
+  onClose,
+}: {
+  state: CogsState;
+  commit: (s: CogsState) => void;
+  onClose: () => void;
+}) {
+  const [apiKey, setApiKey] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [error, setError] = useState("");
+  const [products, setProducts] = useState<CatalogProduct[] | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [hiddenCount, setHiddenCount] = useState(0);
+
+  async function load() {
+    if (!apiKey.trim()) return;
+    setStatus("loading");
+    setError("");
+    try {
+      const res = await fetch("/api/vendus/catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: apiKey.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.error ?? "Something went wrong.");
+        setStatus("error");
+        return;
+      }
+      const all = (json.products ?? []) as CatalogProduct[];
+      const existingIds = new Set(state.recipes.map((r) => r.vendusProductId).filter(Boolean));
+      const existingNames = new Set(state.recipes.map((r) => r.name.trim().toLowerCase()));
+      const fresh = all.filter(
+        (p) => !existingIds.has(p.id) && !existingNames.has(p.name.trim().toLowerCase())
+      );
+      setHiddenCount(all.length - fresh.length);
+      setProducts(fresh);
+      setSelected(new Set(fresh.filter((p) => p.price > 0).map((p) => p.id)));
+      setStatus("idle");
+    } catch {
+      setError("Connection failed.");
+      setStatus("error");
+    }
+  }
+
+  function importSelected() {
+    if (!products) return;
+    const newRecipes: Recipe[] = products
+      .filter((p) => selected.has(p.id))
+      .map((p) => ({
+        id: uid(),
+        name: p.name,
+        lines: [],
+        yield: null,
+        sellPrice: p.price > 0 ? p.price : null,
+        taxId: "INT" as TaxId,
+        vendusProductId: p.id,
+      }));
+    commit({ ...state, recipes: [...state.recipes, ...newRecipes] });
+    onClose();
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(38,36,30,0.45)",
+        display: "grid",
+        placeItems: "center",
+        padding: 20,
+        zIndex: 50,
+      }}
+      onClick={onClose}
+    >
+      <div style={{ ...card, maxWidth: 460, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div className="label-mono" style={{ marginBottom: 12 }}>
+          Import my menu from Vendus
+        </div>
+
+        {!products ? (
+          <>
+            <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5, margin: "0 0 12px" }}>
+              Pulls your product catalog (read-only) and creates a recipe shell for each item —
+              name, price and Vendus link prefilled. You only add the ingredients.
+            </p>
+            <input
+              style={{ ...inputStyle, fontFamily: "var(--mono)", marginBottom: 10 }}
+              type="password"
+              placeholder="Vendus API key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && load()}
+              autoFocus
+            />
+            {status === "error" && (
+              <div style={{ color: "var(--red)", fontSize: 13, marginBottom: 10 }}>{error}</div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button style={btnGhost} onClick={onClose}>
+                Cancel
+              </button>
+              <button
+                style={{ ...btnPrimary, opacity: apiKey.trim() && status !== "loading" ? 1 : 0.6 }}
+                disabled={!apiKey.trim() || status === "loading"}
+                onClick={load}
+              >
+                {status === "loading" ? "Loading catalog…" : "Load catalog"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
+              {products.length} products found
+              {hiddenCount > 0 && ` · ${hiddenCount} already in Mesa (hidden)`}
+            </div>
+            <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 12 }}>
+              {products.map((p) => (
+                <label
+                  key={p.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "7px 0",
+                    borderTop: "1px solid var(--border)",
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.id)}
+                    onChange={(e) => {
+                      const next = new Set(selected);
+                      if (e.target.checked) next.add(p.id);
+                      else next.delete(p.id);
+                      setSelected(next);
+                    }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.name}
+                    {p.category && (
+                      <span style={{ color: "var(--faint)", fontSize: 11.5 }}> · {p.category}</span>
+                    )}
+                  </span>
+                  <span style={{ ...mono, fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>
+                    {p.price > 0 ? eur(p.price) : "—"}
+                  </span>
+                </label>
+              ))}
+              {products.length === 0 && (
+                <div style={{ fontSize: 13, color: "var(--muted)", padding: "12px 0" }}>
+                  Nothing new to import — your whole catalog is already in Mesa.
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)", marginRight: "auto" }}>
+                {selected.size} selected
+              </span>
+              <button style={btnGhost} onClick={onClose}>
+                Cancel
+              </button>
+              <button
+                style={{ ...btnPrimary, opacity: selected.size > 0 ? 1 : 0.6 }}
+                disabled={selected.size === 0}
+                onClick={importSelected}
+              >
+                Import {selected.size} product{selected.size === 1 ? "" : "s"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
