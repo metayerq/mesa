@@ -520,7 +520,6 @@ export function topMovers(docs: VendusDoc[], until: string): Mover[] {
 export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) {
   const catByName = new Map(catalog.map((p) => [p.name.toLowerCase(), p]));
   const agg = new Map<string, { name: string; category: string; units: number; revenue: number }>();
-  const soldNames = new Set<string>();
   let totalLines = 0;
   let multi = 0;
 
@@ -531,7 +530,6 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
     for (const it of items) {
       const name = (it.title ?? "").trim();
       if (!name) continue;
-      soldNames.add(name.toLowerCase());
       const rev = num(it.amounts?.gross_total ?? it.amounts?.net_total);
       const cat = catByName.get(name.toLowerCase())?.category ?? "Autre";
       const cur = agg.get(name) ?? { name, category: cat, units: 0, revenue: 0 };
@@ -552,11 +550,6 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
     .filter((p) => p.units > 0)
     .sort((a, b) => a.units - b.units)
     .slice(0, 6);
-
-  const unsold = catalog
-    .filter((p) => p.name && !soldNames.has(p.name.toLowerCase()))
-    .map((p) => ({ name: p.name, category: p.category, price: p.price }))
-    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
 
   const byCat = new Map<string, number>();
   for (const p of all) byCat.set(p.category, (byCat.get(p.category) ?? 0) + p.revenue);
@@ -579,5 +572,5 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
     items_per_ticket: round2(totalLines / total),
   };
 
-  return { topByRevenue, slowMovers, unsold, categoryMix, tickets };
+  return { topByRevenue, slowMovers, categoryMix, tickets };
 }

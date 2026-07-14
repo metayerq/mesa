@@ -10,7 +10,7 @@ One sentence per tier, and one objective rule: **anything that requires cost dat
 | | **Free** | **Sales — €14.99/mo** | **Profit — €29.99/mo** |
 |---|---|---|---|
 | *Pitch* | A snapshot of your sales | Your sales, live | What you actually **earn** |
-| 30-day snapshot dashboard (revenue, tickets, avg/median basket, hours, days, payments, top/flop products, unsold, category mix, attach rate) | ✅ | ✅ | ✅ |
+| 30-day snapshot dashboard (revenue, tickets, avg/median basket, hours, days, payments, top/flop products, category mix, attach rate) | ✅ | ✅ | ✅ |
 | Live Today view + vs yesterday / last week | — | ✅ | ✅ |
 | Custom periods + 12-month history | — | ✅ | ✅ |
 | Rush heatmap (weekday × hour), activity peaks, intraday cumulative curve | — | ✅ | ✅ |

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export type ConnectResult = {
   meta: { since: string; until: string; days: number; key_last4: string };
@@ -42,7 +43,6 @@ export type ConnectResult = {
 type ProductData = {
   topByRevenue: { name: string; category: string; units: number; revenue: number }[];
   slowMovers: { name: string; category: string; units: number; revenue: number }[];
-  unsold: { name: string; category: string; price: number }[];
   categoryMix: { label: string; amount: number; pct: number }[];
   tickets: { total: number; multi: number; single: number; attach_rate: number; items_per_ticket: number };
   movers: { name: string; cur: number; prev: number; status: "new" | "dropped" | "changed"; pct: number | null }[];
@@ -342,6 +342,9 @@ export default function Dashboard({
           <div style={{ marginTop: 4 }}>
             {meta.since === meta.until ? meta.since : `${meta.since} → ${meta.until}`}
           </div>
+          <Link href="/cogs" style={{ display: "block", marginTop: 6, color: "var(--accent)", fontSize: 12 }}>
+            COGS & Recipes →
+          </Link>
           <button
             onClick={onReset}
             style={{ marginTop: 6, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: 0 }}
@@ -793,7 +796,7 @@ function ProductSection({
     );
   }
 
-  const { topByRevenue, slowMovers, unsold, categoryMix, tickets, movers } = products;
+  const { topByRevenue, slowMovers, categoryMix, tickets, movers } = products;
   const maxTop = Math.max(1, ...topByRevenue.map((p) => p.revenue));
   const maxCat = Math.max(1, ...categoryMix.map((c) => c.amount));
 
@@ -869,41 +872,7 @@ function ProductSection({
         <StatTile label="Items / ticket" value={tickets.items_per_ticket.toLocaleString("en-GB")} sub={`${tickets.total.toLocaleString("en-GB")} tickets`} />
         <StatTile label="Attach rate" value={`${tickets.attach_rate}%`} sub={`${tickets.multi.toLocaleString("en-GB")} tickets with 2+ items`} />
         <StatTile label="Top 8 share of revenue" value={`${Math.round((topByRevenue.reduce((s, p) => s + p.revenue, 0) / (totalCa || 1)) * 100)}%`} sub="sales concentration" />
-        <StatTile label="Unsold products" value={unsold.length.toLocaleString("en-GB")} sub="0 sales this period" />
       </div>
-
-      {/* Unsold */}
-      {unsold.length > 0 && (
-        <div style={card}>
-          <Label>Unsold products · {unsold.length}</Label>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -8, marginBottom: 14 }}>
-            Active in your catalog with zero sales this period — candidates to cut from the menu.
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: 200, overflowY: "auto" }}>
-            {unsold.slice(0, 60).map((p) => (
-              <span
-                key={p.name}
-                title={p.category}
-                style={{
-                  fontSize: 12,
-                  padding: "4px 10px",
-                  border: "1px solid var(--border)",
-                  borderRadius: 20,
-                  color: "var(--muted)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {p.name}
-              </span>
-            ))}
-            {unsold.length > 60 && (
-              <span style={{ fontSize: 12, color: "var(--faint)", padding: "4px 0" }}>
-                +{unsold.length - 60} more
-              </span>
-            )}
-          </div>
-        </div>
-      )}
     </>
   );
 }
