@@ -4,6 +4,7 @@ import {
   getCatalog,
   productAggregates,
   topMovers,
+  transactionsWithItems,
   VendusAuthError,
 } from "@/lib/vendus";
 
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
     ]);
     return NextResponse.json({
       ...productAggregates(docs, catalog),
+      transactions: transactionsWithItems(docs, 40),
       // 7 j vs 7 j : n'a de sens que si la période couvre les 14 jours.
       movers: days >= 14 ? topMovers(docs, until) : [],
     });

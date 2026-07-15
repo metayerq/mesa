@@ -392,7 +392,13 @@ export type VendusItem = {
   amounts?: { net_total?: number | string; gross_total?: number | string };
 };
 
-export type CatalogProduct = { id: number; name: string; category: string; price: number };
+export type CatalogProduct = {
+  id: number;
+  name: string;
+  category: string;
+  price: number; // gross_price (incl. VAT)
+  cost: number; // supply_price (net cost) — 0 when no recipe set on Vendus
+};
 
 function asArray(batch: unknown, keys: string[]): unknown[] {
   if (Array.isArray(batch)) return batch;
@@ -426,6 +432,7 @@ export async function getCatalog(apiKey: string): Promise<CatalogProduct[]> {
         category:
           catNames.get(String(p.category_id)) || String(p.class_name ?? "") || "Autre",
         price: num(p.gross_price),
+        cost: num(p.supply_price),
       });
     }
     if (list.length < 200) break;
@@ -516,10 +523,36 @@ export function topMovers(docs: VendusDoc[], until: string): Mover[] {
     .slice(0, 6);
 }
 
-/** Agrégats produit : top/flop, invendus, mix catégorie, articles par ticket. */
+export type SoldProduct = {
+  name: string;
+  category: string;
+  units: number;
+  revenue: number; // gross (incl. VAT)
+  unitPrice: number; // gross / units
+  marginPct: number | null; // net margin, when cost known
+};
+
+export type CategoryMix = {
+  label: string;
+  amount: number; // gross
+  pct: number; // share of net revenue
+  marginPct: number | null;
+  marginEur: number | null;
+  coverage: number | null; // % of net revenue with cost data
+};
+
+/** Agrégats produit : produits vendus (marge), mix catégorie (marge), tickets. */
 export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) {
   const catByName = new Map(catalog.map((p) => [p.name.toLowerCase(), p]));
-  const agg = new Map<string, { name: string; category: string; units: number; revenue: number }>();
+  type Agg = {
+    name: string;
+    category: string;
+    units: number;
+    revGross: number;
+    revNet: number;
+    cost: number | null; // €/unit (net), null when unknown
+  };
+  const agg = new Map<string, Agg>();
   let totalLines = 0;
   let multi = 0;
 
@@ -530,37 +563,72 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
     for (const it of items) {
       const name = (it.title ?? "").trim();
       if (!name) continue;
-      const rev = num(it.amounts?.gross_total ?? it.amounts?.net_total);
-      const cat = catByName.get(name.toLowerCase())?.category ?? "Autre";
-      const cur = agg.get(name) ?? { name, category: cat, units: 0, revenue: 0 };
+      const cat = catByName.get(name.toLowerCase());
+      const gross = num(it.amounts?.gross_total ?? it.amounts?.net_total);
+      const net = num(it.amounts?.net_total ?? it.amounts?.gross_total);
+      const cur =
+        agg.get(name) ??
+        ({
+          name,
+          category: cat?.category ?? "Uncategorized",
+          units: 0,
+          revGross: 0,
+          revNet: 0,
+          cost: cat && cat.cost > 0 ? cat.cost : null,
+        } as Agg);
       cur.units += num(it.qty);
-      cur.revenue += rev;
+      cur.revGross += gross;
+      cur.revNet += net;
       agg.set(name, cur);
     }
   }
 
-  const all = [...agg.values()].map((p) => ({
-    ...p,
-    revenue: round2(p.revenue),
-    units: Math.round(p.units * 100) / 100,
-  }));
+  const productsSold: SoldProduct[] = [...agg.values()]
+    .map((p) => {
+      const units = Math.round(p.units * 100) / 100;
+      const revenue = round2(p.revGross);
+      const costTotal = p.cost != null ? p.cost * p.units : null;
+      const marginPct =
+        costTotal != null && p.revNet > 0
+          ? round1(((p.revNet - costTotal) / p.revNet) * 100)
+          : null;
+      return {
+        name: p.name,
+        category: p.category,
+        units,
+        revenue,
+        unitPrice: units > 0 ? round2(p.revGross / units) : 0,
+        marginPct,
+      };
+    })
+    .sort((a, b) => b.units - a.units);
 
-  const topByRevenue = [...all].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
-  const slowMovers = [...all]
-    .filter((p) => p.units > 0)
-    .sort((a, b) => a.units - b.units)
-    .slice(0, 6);
-
-  const byCat = new Map<string, number>();
-  for (const p of all) byCat.set(p.category, (byCat.get(p.category) ?? 0) + p.revenue);
-  const grand = [...byCat.values()].reduce((s, v) => s + v, 0) || 1;
-  const categoryMix = [...byCat.entries()]
-    .map(([label, amount]) => ({
-      label,
-      amount: round2(amount),
-      pct: Math.round((amount / grand) * 100),
-    }))
-    .filter((x) => x.amount > 0)
+  // Mix par catégorie avec rentabilité.
+  const byCat = new Map<string, { gross: number; net: number; cogs: number; covered: number }>();
+  for (const p of agg.values()) {
+    const g = byCat.get(p.category) ?? { gross: 0, net: 0, cogs: 0, covered: 0 };
+    g.gross += p.revGross;
+    g.net += p.revNet;
+    if (p.cost != null) {
+      g.cogs += p.cost * p.units;
+      g.covered += p.revNet;
+    }
+    byCat.set(p.category, g);
+  }
+  const grandNet = [...byCat.values()].reduce((s, v) => s + v.net, 0) || 1;
+  const categoryMix: CategoryMix[] = [...byCat.entries()]
+    .filter(([, g]) => g.net > 0)
+    .map(([label, g]) => {
+      const marginPct = g.covered > 0 ? round1(((g.covered - g.cogs) / g.covered) * 100) : null;
+      return {
+        label,
+        amount: round2(g.gross),
+        pct: round1((g.net / grandNet) * 100),
+        marginPct,
+        marginEur: marginPct != null ? round2((g.net * marginPct) / 100) : null,
+        coverage: g.net > 0 ? Math.round((g.covered / g.net) * 100) : null,
+      };
+    })
     .sort((a, b) => b.amount - a.amount);
 
   const total = docs.length || 1;
@@ -572,5 +640,29 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
     items_per_ticket: round2(totalLines / total),
   };
 
-  return { topByRevenue, slowMovers, categoryMix, tickets };
+  return { productsSold, categoryMix, tickets };
 }
+
+/** Transactions récentes avec leurs lignes produits (pour le survol). */
+export function transactionsWithItems(docs: VendusDoc[], limit = 40) {
+  return [...docs]
+    .filter((d) => d.local_time)
+    .sort((a, b) => ((b.local_time ?? "") > (a.local_time ?? "") ? 1 : -1))
+    .slice(0, limit)
+    .map((d) => ({
+      date: (d.local_time ?? "").slice(0, 10),
+      time: (d.local_time ?? "").slice(11, 16),
+      number: d.number ?? String(d.id ?? ""),
+      type: d.type ?? "",
+      amount: round2(num(d.amount_gross)),
+      payment: d.payments?.[0]?.title ?? "",
+      refund: !!d._refund,
+      items: (d.items ?? []).map((it) => ({
+        name: (it.title ?? "").trim(),
+        qty: num(it.qty),
+        amount: round2(num(it.amounts?.gross_total ?? it.amounts?.net_total)),
+      })),
+    }));
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;

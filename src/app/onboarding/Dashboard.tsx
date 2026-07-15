@@ -40,12 +40,23 @@ export type ConnectResult = {
   }[];
 };
 
+type TxWithItems = {
+  date: string;
+  time: string;
+  number: string;
+  type: string;
+  amount: number;
+  payment: string;
+  refund: boolean;
+  items: { name: string; qty: number; amount: number }[];
+};
+
 type ProductData = {
-  topByRevenue: { name: string; category: string; units: number; revenue: number }[];
-  slowMovers: { name: string; category: string; units: number; revenue: number }[];
-  categoryMix: { label: string; amount: number; pct: number }[];
+  productsSold: { name: string; category: string; units: number; revenue: number; unitPrice: number; marginPct: number | null }[];
+  categoryMix: { label: string; amount: number; pct: number; marginPct: number | null; marginEur: number | null; coverage: number | null }[];
   tickets: { total: number; multi: number; single: number; attach_rate: number; items_per_ticket: number };
   movers: { name: string; cur: number; prev: number; status: "new" | "dropped" | "changed"; pct: number | null }[];
+  transactions: TxWithItems[];
 };
 
 type PeriodKey = "today" | "yesterday" | "week" | "lastweek" | "month" | "30d";
@@ -667,67 +678,14 @@ export default function Dashboard({
       {/* Product intelligence (deferred) */}
       <ProductSection status={prodStatus} products={products} totalCa={stats.ca} />
 
-      {/* Latest transactions */}
-      {transactions.length > 0 && (
-        <div style={{ ...card, marginTop: 20 }}>
-          <Label>
-            {singleDay ? "Transactions" : "Latest transactions"} · {transactions.length}
-          </Label>
-          <div style={{ maxHeight: 320, overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr>
-                  {["Time", "Document", "Type", "Payment", "Amount"].map((h) => (
-                    <th
-                      key={h}
-                      className="label-mono"
-                      style={{
-                        textAlign: h === "Amount" ? "right" : "left",
-                        padding: "0 8px 10px 0",
-                        position: "sticky",
-                        top: 0,
-                        background: "var(--bg-card)",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((t) => (
-                  <tr key={`${t.number}-${t.date}-${t.time}`} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ ...mono, padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>
-                      {singleDay ? t.time : `${t.date.slice(5)} ${t.time}`}
-                    </td>
-                    <td style={{ padding: "9px 8px 9px 0", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
-                      {t.number}
-                    </td>
-                    <td style={{ padding: "9px 8px 9px 0" }}>
-                      <span
-                        style={{
-                          ...mono,
-                          fontSize: 11,
-                          border: "1px solid var(--border)",
-                          borderRadius: 4,
-                          padding: "2px 6px",
-                          color: t.refund ? "var(--red)" : "var(--muted)",
-                        }}
-                      >
-                        {t.type}
-                      </span>
-                    </td>
-                    <td style={{ padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>{t.payment}</td>
-                    <td style={{ ...mono, padding: "9px 0", textAlign: "right", color: t.refund ? "var(--red)" : "var(--text)", whiteSpace: "nowrap" }}>
-                      {eur(t.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* Transactions (line items on hover once loaded) */}
+      <TransactionsTable
+        rows={
+          products?.transactions ??
+          transactions.map((t) => ({ ...t, items: [] as TxWithItems["items"] }))
+        }
+        singleDay={singleDay}
+      />
 
       {/* Pro teaser */}
       <div style={{ ...card, marginTop: 24, background: "var(--spec-soft)", borderColor: "rgba(37,84,199,0.25)" }}>
@@ -796,51 +754,109 @@ function ProductSection({
     );
   }
 
-  const { topByRevenue, slowMovers, categoryMix, tickets, movers } = products;
-  const maxTop = Math.max(1, ...topByRevenue.map((p) => p.revenue));
+  const { productsSold, categoryMix, tickets, movers } = products;
   const maxCat = Math.max(1, ...categoryMix.map((c) => c.amount));
+  const topRevenue = [...productsSold].sort((a, b) => b.revenue - a.revenue);
+  const top8Share = Math.round(
+    (topRevenue.slice(0, 8).reduce((s, p) => s + p.revenue, 0) / (totalCa || 1)) * 100
+  );
+  const hasMargins = productsSold.some((p) => p.marginPct != null);
 
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
-        {/* Top products */}
-        <div style={card}>
-          <Label>Top products (revenue)</Label>
-          {topByRevenue.map((p, i) => (
-            <div key={p.name} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5, gap: 8 }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ ...mono, color: "var(--faint)", marginRight: 8 }}>{i + 1}</span>
-                  {p.name}
-                </span>
-                <span style={{ ...mono, whiteSpace: "nowrap" }}>
-                  {eur(p.revenue, true)} · {Math.round(p.units)}×
-                </span>
-              </div>
-              <div style={{ height: 6, background: "var(--bg-hover)", borderRadius: 3 }}>
-                <div style={{ width: `${(p.revenue / maxTop) * 100}%`, height: "100%", background: "var(--accent)", borderRadius: 3 }} />
-              </div>
+      {/* Product mix (with margin) */}
+      <div style={{ ...card, marginBottom: 20 }}>
+        <Label>Product mix</Label>
+        {categoryMix.map((c) => (
+          <div key={c.label} style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, fontSize: 13, marginBottom: 5 }}>
+              <span style={{ fontWeight: 600 }}>{c.label}</span>
+              <span style={{ ...mono, color: "var(--muted)", whiteSpace: "nowrap" }}>
+                {c.pct}% · {eur(c.amount, true)} incl. VAT
+              </span>
             </div>
-          ))}
-        </div>
-
-        {/* Category mix + slow movers */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={card}>
-            <Label>Category mix (revenue)</Label>
-            {categoryMix.map((c) => (
-              <BarRow key={c.label} label={c.label} value={`${eur(c.amount, true)} · ${c.pct}%`} pct={(c.amount / maxCat) * 100} strong />
-            ))}
-          </div>
-          <div style={card}>
-            <Label>Slowest movers</Label>
-            {slowMovers.map((p) => (
-              <div key={p.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8, gap: 8 }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                <span style={{ ...mono, color: "var(--muted)", whiteSpace: "nowrap" }}>{Math.round(p.units)}× · {eur(p.revenue, true)}</span>
+            <div style={{ height: 6, background: "var(--bg-hover)", borderRadius: 3 }}>
+              <div style={{ width: `${(c.amount / maxCat) * 100}%`, height: "100%", background: "var(--accent)", borderRadius: 3 }} />
+            </div>
+            {c.marginPct != null ? (
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
+                margin <b style={{ color: foodMarginColor(c.marginPct) }}>{c.marginPct}%</b>
+                {c.marginEur != null && ` · ${eur(c.marginEur)}`}
+                {c.coverage != null && c.coverage < 100 && ` · ${c.coverage}% costed`}
               </div>
-            ))}
+            ) : (
+              <div style={{ fontSize: 11.5, color: "var(--faint)", marginTop: 4 }}>
+                no recipe cost yet
+              </div>
+            )}
           </div>
+        ))}
+        {!hasMargins && (
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
+            Set recipe costs in{" "}
+            <Link href="/cogs" style={{ color: "var(--accent)" }}>
+              COGS & Recipes
+            </Link>{" "}
+            to see margin per category and per product.
+          </div>
+        )}
+      </div>
+
+      {/* Products sold */}
+      <div style={{ ...card, marginBottom: 20 }}>
+        <Label>Products sold · {productsSold.length}</Label>
+        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                {[
+                  { h: "Product", a: "left" },
+                  { h: "Qty", a: "right" },
+                  { h: "Unit price", a: "right" },
+                  { h: "Revenue", a: "right" },
+                  { h: "Margin", a: "right" },
+                ].map(({ h, a }) => (
+                  <th
+                    key={h}
+                    className="label-mono"
+                    style={{
+                      textAlign: a as "left" | "right",
+                      padding: "0 8px 10px 0",
+                      position: "sticky",
+                      top: 0,
+                      background: "var(--bg-card)",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {productsSold.map((p) => (
+                <tr key={p.name} style={{ borderTop: "1px solid var(--border)" }}>
+                  <td style={{ padding: "9px 8px 9px 0", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>
+                    {p.name}
+                  </td>
+                  <td style={{ ...mono, padding: "9px 8px 9px 0", textAlign: "right" }}>{Math.round(p.units)}</td>
+                  <td style={{ ...mono, padding: "9px 8px 9px 0", textAlign: "right", color: "var(--muted)" }}>{eur(p.unitPrice)}</td>
+                  <td style={{ ...mono, padding: "9px 8px 9px 0", textAlign: "right" }}>{eur(p.revenue)}</td>
+                  <td style={{ ...mono, padding: "9px 0", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {p.marginPct != null ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                        <span style={{ width: 40, height: 5, background: "var(--bg-hover)", borderRadius: 3, overflow: "hidden" }}>
+                          <span style={{ display: "block", width: `${Math.max(0, Math.min(100, p.marginPct))}%`, height: "100%", background: foodMarginColor(p.marginPct) }} />
+                        </span>
+                        <span style={{ color: foodMarginColor(p.marginPct), width: 44, textAlign: "right" }}>{p.marginPct}%</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--faint)" }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -871,8 +887,115 @@ function ProductSection({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
         <StatTile label="Items / ticket" value={tickets.items_per_ticket.toLocaleString("en-GB")} sub={`${tickets.total.toLocaleString("en-GB")} tickets`} />
         <StatTile label="Attach rate" value={`${tickets.attach_rate}%`} sub={`${tickets.multi.toLocaleString("en-GB")} tickets with 2+ items`} />
-        <StatTile label="Top 8 share of revenue" value={`${Math.round((topByRevenue.reduce((s, p) => s + p.revenue, 0) / (totalCa || 1)) * 100)}%`} sub="sales concentration" />
+        <StatTile label="Top 8 share of revenue" value={`${top8Share}%`} sub="sales concentration" />
       </div>
     </>
+  );
+}
+
+function foodMarginColor(pct: number): string {
+  if (pct >= 70) return "var(--green)";
+  if (pct >= 60) return "var(--amber)";
+  return "var(--red)";
+}
+
+function TransactionsTable({ rows, singleDay }: { rows: TxWithItems[]; singleDay: boolean }) {
+  const [hover, setHover] = useState<{ i: number; top: number; left: number } | null>(null);
+  if (rows.length === 0) return null;
+  const active = hover != null ? rows[hover.i] : null;
+
+  return (
+    <div style={{ ...card, marginTop: 20 }}>
+      <Label>
+        {singleDay ? "Transactions" : "Latest transactions"} · {rows.length}
+      </Label>
+      <div style={{ maxHeight: 320, overflowY: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr>
+              {["Time", "Document", "Type", "Payment", "Amount"].map((h) => (
+                <th
+                  key={h}
+                  className="label-mono"
+                  style={{
+                    textAlign: h === "Amount" ? "right" : "left",
+                    padding: "0 8px 10px 0",
+                    position: "sticky",
+                    top: 0,
+                    background: "var(--bg-card)",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t, i) => (
+              <tr
+                key={`${t.number}-${t.date}-${t.time}`}
+                style={{ borderTop: "1px solid var(--border)", cursor: t.items.length ? "help" : "default", background: hover?.i === i ? "var(--bg-hover)" : undefined }}
+                onMouseEnter={(e) => {
+                  if (!t.items.length) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setHover({ i, top: r.top, left: r.left });
+                }}
+                onMouseLeave={() => setHover(null)}
+              >
+                <td style={{ ...mono, padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>
+                  {singleDay ? t.time : `${t.date.slice(5)} ${t.time}`}
+                </td>
+                <td style={{ padding: "9px 8px 9px 0", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>{t.number}</td>
+                <td style={{ padding: "9px 8px 9px 0" }}>
+                  <span style={{ ...mono, fontSize: 11, border: "1px solid var(--border)", borderRadius: 4, padding: "2px 6px", color: t.refund ? "var(--red)" : "var(--muted)" }}>
+                    {t.type}
+                  </span>
+                </td>
+                <td style={{ padding: "9px 8px 9px 0", color: "var(--muted)", whiteSpace: "nowrap" }}>{t.payment}</td>
+                <td style={{ ...mono, padding: "9px 0", textAlign: "right", color: t.refund ? "var(--red)" : "var(--text)", whiteSpace: "nowrap" }}>
+                  {eur(t.amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {active && active.items.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            top: Math.min(hover!.top, (typeof window !== "undefined" ? window.innerHeight : 800) - 40 - active.items.length * 22),
+            left: Math.min(hover!.left + 12, (typeof window !== "undefined" ? window.innerWidth : 900) - 250),
+            width: 230,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            boxShadow: "0 8px 28px rgba(38,36,30,0.18)",
+            padding: 12,
+            zIndex: 40,
+            pointerEvents: "none",
+          }}
+        >
+          <div className="label-mono" style={{ marginBottom: 8 }}>
+            {active.number} · {active.time}
+          </div>
+          {active.items.map((it, k) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, marginBottom: 4 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {it.qty > 1 && <span style={{ ...mono, color: "var(--muted)" }}>{Math.round(it.qty)}× </span>}
+                {it.name}
+              </span>
+              <span style={{ ...mono, whiteSpace: "nowrap" }}>{eur(it.amount)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border)", fontWeight: 600 }}>
+            <span>Total</span>
+            <span style={mono}>{eur(active.amount)}</span>
+          </div>
+          {active.payment && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>{active.payment}</div>}
+        </div>
+      )}
+    </div>
   );
 }
