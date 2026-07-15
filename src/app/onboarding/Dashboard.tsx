@@ -50,8 +50,18 @@ type TxWithItems = {
   items: { name: string; qty: number; amount: number }[];
 };
 
+type SoldProductRow = {
+  name: string;
+  category: string;
+  units: number;
+  revenue: number;
+  unitPrice: number;
+  marginPct: number | null;
+  contributionPerUnit: number | null;
+};
+
 type ProductData = {
-  productsSold: { name: string; category: string; units: number; revenue: number; unitPrice: number; marginPct: number | null }[];
+  productsSold: SoldProductRow[];
   categoryMix: { label: string; amount: number; pct: number; marginPct: number | null; marginEur: number | null; coverage: number | null }[];
   tickets: { total: number; multi: number; single: number; attach_rate: number; items_per_ticket: number };
   movers: { name: string; cur: number; prev: number; status: "new" | "dropped" | "changed"; pct: number | null }[];
@@ -782,6 +792,9 @@ function ProductSection({
         )}
       </div>
 
+      {/* Menu engineering matrix */}
+      <MenuMatrix products={productsSold} />
+
       {/* Products sold */}
       <div style={{ ...card, marginBottom: 20 }}>
         <Label>Products sold · {productsSold.length}</Label>
@@ -974,6 +987,200 @@ function TransactionsTable({ rows, singleDay }: { rows: TxWithItems[]; singleDay
             <span style={mono}>{eur(active.amount)}</span>
           </div>
           {active.payment && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>{active.payment}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Menu engineering matrix (Stars / Puzzles / Plowhorses / Dogs) ──────────
+
+type Quadrant = "star" | "puzzle" | "plowhorse" | "dog";
+
+const QUADRANT_META: Record<
+  Quadrant,
+  { label: string; color: string; advice: string }
+> = {
+  star: { label: "Stars", color: "var(--green)", advice: "High volume, high margin — protect these, never discount." },
+  puzzle: { label: "Puzzles", color: "var(--accent)", advice: "High margin, low volume — feature these, cross-sell, move up the menu." },
+  plowhorse: { label: "Plowhorses", color: "var(--amber)", advice: "High volume, low margin — a small price rise pays off fast." },
+  dog: { label: "Dogs", color: "var(--red)", advice: "Low volume, low margin — rework the recipe or cut it." },
+};
+
+function MenuMatrix({ products }: { products: SoldProductRow[] }) {
+  const [hover, setHover] = useState<{ x: number; y: number; p: SoldProductRow; q: Quadrant } | null>(null);
+
+  const costed = products.filter((p) => p.contributionPerUnit != null && p.units > 0);
+
+  if (costed.length < 4) {
+    return (
+      <div style={{ ...card, marginBottom: 20 }}>
+        <Label>Menu matrix</Label>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+          Needs at least 4 products with a known cost to plot stars, puzzles, plowhorses and
+          dogs. Margin per product will show automatically once product costs are set.
+        </div>
+      </div>
+    );
+  }
+
+  const avgUnits = costed.reduce((s, p) => s + p.units, 0) / costed.length;
+  const avgContribution =
+    costed.reduce((s, p) => s + (p.contributionPerUnit ?? 0), 0) / costed.length;
+
+  function quadrantOf(p: SoldProductRow): Quadrant {
+    const highVolume = p.units >= avgUnits;
+    const highMargin = (p.contributionPerUnit ?? 0) >= avgContribution;
+    if (highVolume && highMargin) return "star";
+    if (!highVolume && highMargin) return "puzzle";
+    if (highVolume && !highMargin) return "plowhorse";
+    return "dog";
+  }
+
+  const W = 640;
+  const H = 380;
+  const PAD = { l: 46, r: 16, t: 20, b: 34 };
+  const plotW = W - PAD.l - PAD.r;
+  const plotH = H - PAD.t - PAD.b;
+
+  const maxUnits = Math.max(...costed.map((p) => p.units)) * 1.08 || 1;
+  const contributions = costed.map((p) => p.contributionPerUnit ?? 0);
+  const minC = Math.min(0, ...contributions);
+  const maxC = Math.max(...contributions);
+  const yLo = minC < 0 ? minC * 1.15 : 0;
+  const yHi = maxC > 0 ? maxC * 1.15 : 1;
+
+  const x = (u: number) => PAD.l + (u / maxUnits) * plotW;
+  const y = (v: number) => PAD.t + plotH - ((v - yLo) / (yHi - yLo)) * plotH;
+  const avgX = x(avgUnits);
+  const avgYpix = y(avgContribution);
+
+  const maxAbsTotal = Math.max(
+    1,
+    ...costed.map((p) => Math.abs((p.contributionPerUnit ?? 0) * p.units))
+  );
+  const radius = (p: SoldProductRow) => {
+    const total = Math.abs((p.contributionPerUnit ?? 0) * p.units);
+    return 3.5 + Math.sqrt(total / maxAbsTotal) * 7;
+  };
+
+  const counts: Record<Quadrant, SoldProductRow[]> = { star: [], puzzle: [], plowhorse: [], dog: [] };
+  for (const p of costed) counts[quadrantOf(p)].push(p);
+
+  return (
+    <div style={{ ...card, marginBottom: 20, position: "relative" }}>
+      <Label>Menu matrix</Label>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: -8, marginBottom: 14, lineHeight: 1.5 }}>
+        Units sold vs. margin per unit — bubble size ≈ total profit contributed this period.
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }}>
+          {/* Quadrant tints */}
+          <rect x={avgX} y={PAD.t} width={PAD.l + plotW - avgX} height={avgYpix - PAD.t} fill={QUADRANT_META.star.color} opacity={0.06} />
+          <rect x={PAD.l} y={PAD.t} width={avgX - PAD.l} height={avgYpix - PAD.t} fill={QUADRANT_META.puzzle.color} opacity={0.06} />
+          <rect x={avgX} y={avgYpix} width={PAD.l + plotW - avgX} height={PAD.t + plotH - avgYpix} fill={QUADRANT_META.plowhorse.color} opacity={0.06} />
+          <rect x={PAD.l} y={avgYpix} width={avgX - PAD.l} height={PAD.t + plotH - avgYpix} fill={QUADRANT_META.dog.color} opacity={0.06} />
+
+          {/* Quadrant labels — bottom two sit just under the divider (edges cluster with real data), top two keep the corner. */}
+          <text x={PAD.l + plotW - 6} y={PAD.t + 14} textAnchor="end" className="mm-label" fill={QUADRANT_META.star.color}>STARS</text>
+          <text x={PAD.l + 6} y={PAD.t + 14} textAnchor="start" className="mm-label" fill={QUADRANT_META.puzzle.color}>PUZZLES</text>
+          <text x={PAD.l + plotW - 6} y={avgYpix + 15} textAnchor="end" className="mm-label" fill={QUADRANT_META.plowhorse.color}>PLOWHORSES</text>
+          <text x={PAD.l + 6} y={avgYpix + 15} textAnchor="start" className="mm-label" fill={QUADRANT_META.dog.color}>DOGS</text>
+
+          {/* Divider lines at averages */}
+          <line x1={avgX} y1={PAD.t} x2={avgX} y2={PAD.t + plotH} stroke="var(--border)" strokeWidth={1} strokeDasharray="4 4" />
+          <line x1={PAD.l} y1={avgYpix} x2={PAD.l + plotW} y2={avgYpix} stroke="var(--border)" strokeWidth={1} strokeDasharray="4 4" />
+          {yLo < 0 && (
+            <line x1={PAD.l} y1={y(0)} x2={PAD.l + plotW} y2={y(0)} stroke="var(--red)" strokeWidth={1} strokeDasharray="2 3" opacity={0.5} />
+          )}
+
+          {/* Axes */}
+          <line x1={PAD.l} y1={PAD.t + plotH} x2={PAD.l + plotW} y2={PAD.t + plotH} stroke="var(--border)" strokeWidth={1} />
+          <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t + plotH} stroke="var(--border)" strokeWidth={1} />
+          <text x={PAD.l} y={H - 8} className="mm-axis" fill="var(--faint)">0</text>
+          <text x={PAD.l + plotW} y={H - 8} textAnchor="end" className="mm-axis" fill="var(--faint)">{Math.round(maxUnits)} units</text>
+          <text x={PAD.l - 6} y={PAD.t + 8} textAnchor="end" className="mm-axis" fill="var(--faint)">{eur(yHi)}</text>
+
+          {/* Points */}
+          {costed.map((p) => {
+            const q = quadrantOf(p);
+            return (
+              <circle
+                key={p.name}
+                cx={x(p.units)}
+                cy={y(p.contributionPerUnit ?? 0)}
+                r={radius(p)}
+                fill={QUADRANT_META[q].color}
+                fillOpacity={0.75}
+                stroke={QUADRANT_META[q].color}
+                strokeWidth={1}
+                onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY, p, q })}
+                onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY, p, q })}
+                onMouseLeave={() => setHover(null)}
+                style={{ cursor: "pointer" }}
+              />
+            );
+          })}
+        </svg>
+      </div>
+
+      <style>{`.mm-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; opacity: 0.65; }
+        .mm-axis { font-family: var(--mono); font-size: 10px; }`}</style>
+
+      {/* Quadrant summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 16 }}>
+        {(Object.keys(QUADRANT_META) as Quadrant[]).map((q) => {
+          const items = counts[q];
+          const meta = QUADRANT_META[q];
+          return (
+            <div key={q} style={{ border: "1px solid var(--border)", borderLeft: `3px solid ${meta.color}`, borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{meta.label}</span>
+                <span style={{ ...mono, fontSize: 12, color: "var(--muted)" }}>{items.length}</span>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4, marginBottom: 6 }}>{meta.advice}</div>
+              {items.length > 0 && (
+                <div style={{ fontSize: 11.5, color: "var(--text)", lineHeight: 1.5 }}>
+                  {items
+                    .slice()
+                    .sort((a, b) => Math.abs((b.contributionPerUnit ?? 0) * b.units) - Math.abs((a.contributionPerUnit ?? 0) * a.units))
+                    .slice(0, 3)
+                    .map((p) => p.name)
+                    .join(" · ")}
+                  {items.length > 3 && ` +${items.length - 3}`}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {hover && (
+        <div
+          style={{
+            position: "fixed",
+            top: hover.y + 14,
+            left: Math.min(hover.x + 14, (typeof window !== "undefined" ? window.innerWidth : 900) - 220),
+            width: 200,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            boxShadow: "0 8px 28px rgba(38,36,30,0.18)",
+            padding: 10,
+            zIndex: 40,
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{hover.p.name}</div>
+          <div className="label-mono" style={{ color: QUADRANT_META[hover.q].color, marginBottom: 6 }}>
+            {QUADRANT_META[hover.q].label}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.6 }}>
+            {Math.round(hover.p.units)} sold · {eur(hover.p.contributionPerUnit ?? 0)}/unit
+            <br />
+            {eur((hover.p.contributionPerUnit ?? 0) * hover.p.units)} total profit
+          </div>
         </div>
       )}
     </div>

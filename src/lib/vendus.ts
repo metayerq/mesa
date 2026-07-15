@@ -530,6 +530,7 @@ export type SoldProduct = {
   revenue: number; // gross (incl. VAT)
   unitPrice: number; // gross / units
   marginPct: number | null; // net margin, when cost known
+  contributionPerUnit: number | null; // net price − cost, € per unit sold
 };
 
 export type CategoryMix = {
@@ -592,6 +593,8 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
         costTotal != null && p.revNet > 0
           ? round1(((p.revNet - costTotal) / p.revNet) * 100)
           : null;
+      const contributionPerUnit =
+        p.cost != null && p.units > 0 ? round2(p.revNet / p.units - p.cost) : null;
       return {
         name: p.name,
         category: p.category,
@@ -599,6 +602,7 @@ export function productAggregates(docs: VendusDoc[], catalog: CatalogProduct[]) 
         revenue,
         unitPrice: units > 0 ? round2(p.revGross / units) : 0,
         marginPct,
+        contributionPerUnit,
       };
     })
     .sort((a, b) => b.units - a.units);
