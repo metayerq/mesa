@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 export type ConnectResult = {
   meta: { since: string; until: string; days: number; key_last4: string };
@@ -353,9 +352,6 @@ export default function Dashboard({
           <div style={{ marginTop: 4 }}>
             {meta.since === meta.until ? meta.since : `${meta.since} → ${meta.until}`}
           </div>
-          <Link href="/cogs" style={{ display: "block", marginTop: 6, color: "var(--accent)", fontSize: 12 }}>
-            COGS & Recipes →
-          </Link>
           <button
             onClick={onReset}
             style={{ marginTop: 6, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: 0 }}
@@ -686,18 +682,6 @@ export default function Dashboard({
         }
         singleDay={singleDay}
       />
-
-      {/* Pro teaser */}
-      <div style={{ ...card, marginTop: 24, background: "var(--spec-soft)", borderColor: "rgba(37,84,199,0.25)" }}>
-        <div className="label-mono" style={{ color: "var(--accent)", marginBottom: 6 }}>
-          Profit analytics · €29.99/mo
-        </div>
-        <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-          You&apos;re seeing your <b>sales</b>. Upgrade to <b>margins</b>: COGS per product, daily
-          break-even, profitability-ranked mix and Revolut ↔ Vendus reconciliation.{" "}
-          <span style={{ color: "var(--muted)" }}>Coming soon — 14-day free trial.</span>
-        </div>
-      </div>
     </main>
   );
 }
@@ -793,11 +777,7 @@ function ProductSection({
         ))}
         {!hasMargins && (
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
-            Set recipe costs in{" "}
-            <Link href="/cogs" style={{ color: "var(--accent)" }}>
-              COGS & Recipes
-            </Link>{" "}
-            to see margin per category and per product.
+            Margin per category and per product will show automatically once product costs are set.
           </div>
         )}
       </div>
